@@ -11,6 +11,7 @@ Notification Manager for advanced notifications in Windows 10/11
 - Recieve notification failed
 - Scheduled notifications
 
+## Example demo
 ![anim](https://github.com/Codrax/Cod-Notification-Manager/assets/68193064/33026b0f-b11a-4c27-993e-69f6850db506)
 
 
