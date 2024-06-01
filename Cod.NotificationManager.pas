@@ -170,6 +170,8 @@ interface
       // Interface-access classes
       FData: TNotificationData;
 
+      procedure Initiate(XML: Xml_Dom_IXmlDocument);
+
       function GetExpiration: TDateTime;
       procedure SetExpiration(const Value: TDateTime);
       function GetSuppress: boolean;
@@ -220,8 +222,16 @@ interface
 
       // Expire notification after reboot
       property ExpiresOnReboot: boolean read GetExireReboot write SetExpireReboot;
-      
+
+      // Utils
+      /// <summary>
+      ///  Reset the notification to It's default state before being posted.
+      /// </summary>
+      procedure Reset;
+
+      // Constructors
       constructor Create(XMLDocument: TDomXMLDocument);
+      destructor Destroy; override;
     end;
 
     // Builder
@@ -282,7 +292,7 @@ interface
       const
         VALUE_NAME = 'DisplayName';
         VALUE_ICON = 'IconUri';
-        VALUE_ACTIVATOR = 'DisplayName';
+        VALUE_ACTIVATOR = 'CustomActivator';
         VALUE_SETTINGS = 'ShowInSettings';
         VALUE_LAUNCH = 'LaunchUri';
 
@@ -464,7 +474,7 @@ function TNotificationManager.GetAppActivator: string;
 begin
   Result := '';
   if HasRegistryRecord then
-    if TQuickReg.ValueExists(FRegPath, VALUE_ICON) then
+    if TQuickReg.ValueExists(FRegPath, VALUE_ACTIVATOR) then
       Result := TQuickReg.GetStringValue(FRegPath, VALUE_ACTIVATOR);
 end;
 
@@ -952,16 +962,19 @@ end;
 
 constructor TNotification.Create(XMLDocument: TDomXMLDocument);
 begin
-  FToast := TToastNotification.CreateToastNotification( XMLDocument.DomXML );
-            
-  if Supports(FToast, IID_IToastNotification2) then
-    FToast.QueryInterface(IID_IToastNotification2, FToast2);
-  if Supports(FToast, IID_IToastNotification3) then
-    FToast.QueryInterface(IID_IToastNotification3, FToast3);
-  if Supports(FToast, IID_IToastNotification4) then
-    FToast.QueryInterface(IID_IToastNotification4, FToast4);
-  if Supports(FToast, IID_IToastNotification6) then
-    FToast.QueryInterface(IID_IToastNotification6, FToast6);
+  Initiate( XMLDocument.DomXML );
+end;
+
+destructor TNotification.Destroy;
+begin
+  FToast := nil;
+  FToast2 := nil;
+  FToast3 := nil;
+  FToast4 := nil;
+  FToast6 := nil;
+  FData.Free;
+
+  inherited;
 end;
 
 function TNotification.GetExireReboot: boolean;
@@ -1011,6 +1024,56 @@ begin
   const HStr = FToast2.Tag;
   Result := HStr.ToString;
   HStr.Free;
+end;
+
+procedure TNotification.Initiate(XML: Xml_Dom_IXmlDocument);
+begin
+  FToast := TToastNotification.CreateToastNotification( XML );
+
+  if Supports(FToast, IID_IToastNotification2) then
+    FToast.QueryInterface(IID_IToastNotification2, FToast2);
+  if Supports(FToast, IID_IToastNotification3) then
+    FToast.QueryInterface(IID_IToastNotification3, FToast3);
+  if Supports(FToast, IID_IToastNotification4) then
+    FToast.QueryInterface(IID_IToastNotification4, FToast4);
+  if Supports(FToast, IID_IToastNotification6) then
+    FToast.QueryInterface(IID_IToastNotification6, FToast6);
+end;
+
+procedure TNotification.Reset;
+begin
+  const PrevToast = FToast;
+  const PrevToast2 = FToast2;
+  const PrevToast3 = FToast2;
+  const PrevToast4 = FToast2;
+  const PrevToast6 = FToast2;
+
+  // Clear
+  FPosted := false;
+
+  FToast := nil;
+  FToast2 := nil;
+  FToast3 := nil;
+  FToast4 := nil;
+  FToast6 := nil;
+
+  // Create
+  Initiate( prevToast.Content );
+
+  FToast.ExpirationTime := prevToast.ExpirationTime;
+  if not PrevToast2.Tag.Empty then
+    FToast2.Tag := PrevToast2.Tag;
+  if not PrevToast2.Group.Empty then
+    FToast2.Group := PrevToast2.Group;
+  FToast2.SuppressPopup := PrevToast2.SuppressPopup;
+  FToast3.NotificationMirroring_ := FToast3.NotificationMirroring_;
+  if not FToast3.RemoteId.Empty then
+    FToast3.RemoteId := FToast3.RemoteId;
+  FToast4.Priority := FToast4.Priority;
+  FToast6.ExpiresOnReboot := FToast6.ExpiresOnReboot;
+
+  // Reset data
+  FToast4.Data := FData.Data;
 end;
 
 procedure TNotification.SetData(const Value: TNotificationData);
