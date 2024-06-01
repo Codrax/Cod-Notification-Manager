@@ -627,10 +627,4 @@ begin
   FTagName := 'xml';
 end;
 
-initialization
-  if Failed(RoInitialize(RO_INIT_SINGLETHREADED)) then
-    raise Exception.Create('Could not initialize Windows Runtime.');
-
-finalization
-  RoUninitialize;
 end.
