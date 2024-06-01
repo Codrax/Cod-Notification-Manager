@@ -2,14 +2,14 @@
 Notification Manager for advanced notifications in Windows 10/11
 
 ## Dependencies (provided)
+- Cod.WindowsRuntime
 - Cod.ArrayHelpers
 - Cod.Registry
+- Cod.MesssageConst
 
 ## Planned features
-- Recieve notification closed message
+- Recieve notification closed/activated/failed message
 - Recieve button clicks/input
-- Recieve notification failed
-- Scheduled notifications
 
 ## Example demo
 ![anim](https://github.com/Codrax/Cod-Notification-Manager/assets/68193064/33026b0f-b11a-4c27-993e-69f6850db506)
@@ -22,29 +22,61 @@ Notification Manager for advanced notifications in Windows 10/11
   Manager := TNotificationManager.Create;
 
   Manager.ApplicationIdentifier := 'App.Test';
-  Manager.ShowInSettings := false;
-
-  Manager.ApplicationName := 'Not so Cool test';
+  Manager.ApplicationName := 'Amazing application';
+  Manager.ShowInSettings := true;
 ```
 
 ### Creating a notification
 ```
-  Notif := Manager.CreateNewNotification;
+  with TToastContentBuilder.Create do
+    try
+      AddText( TToastValueBindable.Create('title') );
+      AddText( TToastValueString.Create('This is the new notifications engine :)') );;
+      AddAudio(TSoundEventValue.NotificationIM, WinFalse);
+  
+      AddHeroImage(TToastValueString.Create('C:\Windows\System32\@facial-recognition-windows-hello.gif'));
+      AddProgressBar(TToastValueString.Create('Downloading...'), TToastValueBindable.Create('download-pos'));
+  
+      AddButton('Cancel', TActivationType.Foreground, 'cancel');
+      AddButton('View more', TActivationType.Foreground, 'view');
+  
+      // Data
+      Notif := TNotification.Create(GetXML);
+  
+      Notif.Tag := 'notification1';
+  
+      // Data binded values
+      Notif.Data := TNotificationData.Create;
+      Notif.Data['title'] := 'Hello world!';
+      Notif.Data['download-pos'] := '0';
+    finally
+      Free;
+    end;
 ```
 
 ### Pushing notification
 ```
-  Notif.Title := 'This is the title';
-  Notif.Text := 'This is the text';
-
-  Notif.Image.Source := 'C:\Windows\System32\@facial-recognition-windows-hello.gif';
-  Notif.Image.Placement := TImagePlacement.Hero;
-  Notif.Image.HintCrop := TImageCrop.Circle;
-
-  Notif.UpdateToastInterface;
   Manager.ShowNotification(Notif);
+```
+
+
+### Hiding notification
+```
+  Manager.HideNotification(Notif);
+```
+
+### Updating notification contents
+```
+  const DownloadValue = Notif.Data['download-pos'].ToSingle+0.1;
+  Notif.Data['download-pos'] := DownloadValue.ToString;
+  if DownloadValue >= 1 then
+    Notif.Data['title'] := 'Download finalised!';
+
+  // Update
+  Manager.UpdateNotification(Notif);
 ```
 
 ## Important notes
 - Do not free the `TNotificationManager` until the app will no longer send notification.
-- Do not free the notification until It is no longer needed, because you will no longer be able to hide It. The notification can be reset
+- Do not free the notification until It is no longer needed, because you will no longer be able to hide It. The notification can be reset using the `Reset()`
+ method
