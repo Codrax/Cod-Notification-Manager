@@ -167,6 +167,8 @@ interface
       FToast4: IToastNotification4;
       FToast6: IToastNotification6;
 
+      FToastScheduled: IScheduledToastNotification;
+
       // Interface-access classes
       FData: TNotificationData;
 
@@ -354,6 +356,8 @@ interface
       procedure CreateRegistryRecord;
       procedure DeleteRegistryRecord;
 
+      property P: IToastNotifier read FNotifier;
+
       // Constructors
       constructor Create;
       destructor Destroy; override;
@@ -366,6 +370,7 @@ interface
   IID_IToastNotification3: TGUID = '{31E8AED8-8141-4F99-BC0A-C4ED21297D77}';
   IID_IToastNotification4: TGUID = '{15154935-28EA-4727-88E9-C58680E2D118}';
   IID_IToastNotification6: TGUID = '{43EBFE53-89AE-5C1E-A279-3AECFE9B6F54}';
+  IID_IScheduledToastNotifier: TGUID = '{79F577F8-0DE7-48CD-9740-9B370490C838}';
 
   // Utils
   function AudioTypeToString(AType: TSoundEventValue): string;
@@ -986,7 +991,7 @@ function TNotification.GetExpiration: TDateTime;
 begin       
   Result := UnixToDateTime(
     FToast.ExpirationTime.Value.UniversalTime,
-    false // no utc
+    true // utc
     );
 end;
 
@@ -1038,6 +1043,9 @@ begin
     FToast.QueryInterface(IID_IToastNotification4, FToast4);
   if Supports(FToast, IID_IToastNotification6) then
     FToast.QueryInterface(IID_IToastNotification6, FToast6);
+
+  if Supports(FToast, IID_IScheduledToastNotifier) then
+    FToast.QueryInterface(IID_IScheduledToastNotifier, FToastScheduled);
 end;
 
 procedure TNotification.Reset;
@@ -1090,7 +1098,10 @@ var
   WinDateTime: Winapi.CommonTypes.DateTime;
 begin
   // Convert TDateTime to Windows.Foundation.DateTime
-  WinDateTime.UniversalTime := DateTimeToUnix(Now, false);
+  WinDateTime.UniversalTime := DateTimeToUnix(
+    Now,
+    true // utc
+  );
 
   // Create a new instance of IReference_1__DateTime
   TPropertyValue.CreateDateTime(WinDateTime).QueryInterface(IReference_1__DateTime, Reference);
@@ -1150,21 +1161,10 @@ end;
 
 constructor TNotificationData.Create;
 var
-  instance: IInspectable;
-  className: HSTRING;
-begin                     
-  Data := nil;
-                     
+  Instance: IInspectable;
+begin
   // Runtime class
-  className := hstring.Create('Windows.UI.Notifications.NotificationData');
-
-  // Activate the instance
-  try
-    if Failed(RoActivateInstance(className, instance)) then
-      raise Exception.Create('Could not create notification data.');
-  finally
-    className.Free;
-  end;
+  Instance := FactoryCreateInstance('Windows.UI.Notifications.NotificationData');
 
   // Query the interface
   instance.QueryInterface(INotificationData, Data);

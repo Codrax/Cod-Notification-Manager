@@ -162,8 +162,13 @@ interface
       procedure Free;
     end;
 
-  // Utils
+  // WinBool
   function WinBooleanToString(AType: TWinBoolean): string;
+
+  // Factory
+  function FactoryCreateInstance(Nane: string): IInspectable;
+
+  // HString
   function StringToHString(Value: string): HSTRING; // Needs to be freed with WindowsDeleteString
   function HStringToString(AString: HSTRING): string;
   procedure FreeHString(AString: HSTRING);
@@ -180,6 +185,24 @@ begin
     TWinBoolean.WinDefault: Result := 'default';
     TWinBoolean.WinFalse: Result := 'false';
     TWinBoolean.WinTrue: Result := 'true';
+  end;
+end;
+
+function FactoryCreateInstance(Nane: string): IInspectable;
+var
+  className: HSTRING;
+begin
+  Result := nil;
+
+  // Runtime class
+  className := hstring.Create(Nane);
+
+  // Activate the instance
+  try
+    if Failed(RoActivateInstance(className, Result)) then
+      raise Exception.Create('Could not create notification data.');
+  finally
+    className.Free;
   end;
 end;
 
