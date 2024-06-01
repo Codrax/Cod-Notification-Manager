@@ -1,13 +1,13 @@
 {***********************************************************}
 {                Codruts Notification Manager               }
 {                                                           }
-{                        version 1.1                        }
+{                        version 1.2                        }
 {                                                           }
 {                                                           }
 {                                                           }
 {                                                           }
 {                                                           }
-{              Copyright 2023 Codrut Software               }
+{              Copyright 2024 Codrut Software               }
 {***********************************************************}
 
 {$SCOPEDENUMS ON}
@@ -18,7 +18,8 @@ interface
   uses
   // System
   Winapi.Windows, Winapi.Messages, System.SysUtils, System.Classes,
-  Vcl.Forms, IOUtils,
+  Vcl.Forms, IOUtils, System.Generics.Collections, Dialogs, ActiveX, ComObj,
+  DateUtils,
 
   // Windows RT (Runtime)
   Winapi.Winrt,
@@ -31,6 +32,7 @@ interface
   Winapi.Foundation,
 
   // Cod Utils
+  Cod.WindowsRuntime,
   Cod.Registry;
 
   type
@@ -64,17 +66,208 @@ interface
       NotificationLoopingCall10
     );
 
-    {$SCOPEDENUMS OFF}
-    TWinBoolean = (WinDefault, WinFalse, WinTrue);
-    {$SCOPEDENUMS ON}
+    // Cardinals
     TImagePlacement = (Default, Hero, LogoOverride);
-    TImageCrop = (Default, Circle);
+    TImageCrop = (Default, None, Circle);
     TInputType = (Text, Selection);
+    TActivationType = (Default, Foreground, Background, Protocol);
 
-    TXMLInterface = Xml_Dom_IXmlDocument;
+    // Record
+    TToastComboItem = record
+      ID: string;
+      Content: string;
+    end;
+
+    // Events
+    TNotificationEventHandler = class(TInterfacedObject)
+      public
+        Token: EventRegistrationToken;
+    end;
+
+    TNotificationActivatedHandler = class(TNotificationEventHandler, TypedEventHandler_2__IToastNotification__IInspectable)
+      procedure Invoke(sender: IToastNotification; args: IInspectable); safecall;
+    public
+      Token: EventRegistrationToken;
+    end;
+
+    TNotificationDismissHandler = class(TNotificationEventHandler, TypedEventHandler_2__IToastNotification__IToastDismissedEventArgs)
+      procedure Invoke(sender: IToastNotification; args: IToastDismissedEventArgs); safecall;
+    end;
+
+    TNotificationFailedHandler = class(TNotificationEventHandler, TypedEventHandler_2__IToastNotification__IToastFailedEventArgs)
+      procedure Invoke(sender: IToastNotification; args: IToastFailedEventArgs); safecall;
+    end;
+
+    // Values
+    TToastValue = class
+    public
+      function ToXML: string; virtual; abstract;
+    end;
+    (* String value *)
+    TToastValueString = class(TToastValue)
+    private
+      Value: string;
+    public
+      function ToXML: string; override;
+
+      constructor Create(AValue: string);
+    end;
+    (* Single value *)
+    TToastValueSingle = class(TToastValue)
+    private
+      Value: single;
+    public
+      function ToXML: string; override;
+
+      constructor Create(AValue: single);
+    end;
+    (* Bindable by ID value *)
+    TToastValueBindable = class(TToastValueString)
+      function ToXML: string; override;
+    end;
+
+    // Notification data
+    TNotificationData = class
+    private
+      Data: INotificationData;
+      
+      function GetValue(Key: string): string;
+      procedure SetValue(Key: string; const Value: string);
+      function GetSeq: cardinal;
+      procedure SetSeq(const Value: cardinal);
+
+    public
+      property InterfaceValue: INotificationData read Data;
+
+      // Seq
+      property SequenceNumber: cardinal read GetSeq write SetSeq;
+      procedure IncreaseSequence;
+    
+      // Proc
+      procedure Clear;
+      function ValueCount: cardinal;
+      function ValueExists(Key: string): boolean;
+
+      // Manage
+      property Values[Key: string]: string read GetValue write SetValue; default;
+    
+      constructor Create;
+      destructor Destroy; override;
+    end;
+
+    // Toast notification
+    TNotification = class
+    private
+      FPosted: boolean;
+
+      // Interfaces
+      FToast: IToastNotification;
+      FToast2: IToastNotification2;
+      FToast3: IToastNotification3;
+      FToast4: IToastNotification4;
+      FToast6: IToastNotification6;
+
+      // Interface-access classes
+      FData: TNotificationData;
+
+      function GetExpiration: TDateTime;
+      procedure SetExpiration(const Value: TDateTime);
+      function GetSuppress: boolean;
+      procedure SetSuppress(const Value: boolean);
+      function GetGroup: string;
+      function GetTag: string;
+      procedure SetGroup(const Value: string);
+      procedure SetTag(const Value: string);
+      function GetMirroring: NotificationMirroring;
+      procedure SetMirroring(const Value: NotificationMirroring);
+      function GetRemoteID: string;
+      procedure SetRemoteID(const Value: string);
+      procedure SetData(const Value: TNotificationData);
+      function GetPriority: ToastNotificationPriority;
+      procedure SetPriority(const Value: ToastNotificationPriority);
+      function GetExireReboot: boolean;
+      procedure SetExpireReboot(const Value: boolean);
+    public
+      // Data read
+      property Posted: boolean read FPosted;
+      function Content: TXMLInterface;
+      ///  <summary>
+      ///  Defines the time at which the popup will dissapear.
+      ///  </summary>
+      property ExpirationTime: TDateTime read GetExpiration write SetExpiration;
+      ///  <summary>
+      ///  Defines wheather the popup is shown to the user on the 
+      ///  screen or of It's placed directly in the action center.
+      ///  </summary>
+      property SuppressPopup: boolean read GetSuppress write SetSuppress;
+
+      // Events
+      property ExportToast: IToastNotification read FToast;
+
+      // Identifier
+      property Tag: string read GetTag write SetTag;
+      property Group: string read GetGroup write SetGroup;
+
+      // Remote notification
+      property NotificationMirroring: NotificationMirroring read GetMirroring write SetMirroring;
+      property RemoteId: string read GetRemoteID write SetRemoteID;
+
+      // Data
+      property Data: TNotificationData read FData write SetData;
+
+      // Notification priority
+      property Priority: ToastNotificationPriority read GetPriority write SetPriority;
+
+      // Expire notification after reboot
+      property ExpiresOnReboot: boolean read GetExireReboot write SetExpireReboot;
+      
+      constructor Create(XMLDocument: TDomXMLDocument);
+    end;
+
+    // Builder
+    TToastContentBuilder = class
+    private
+      FXML: TWinXMLDocument;
+      FXMLVisual,
+      FXMLBinding,
+      FXMLActions: TWinXMLNode;
+
+      procedure EnsureActions;
+
+      procedure HandleValues(AValues: TArray<TToastValue>);
+    public
+      function GetXML: TDomXMLDocument;
+
+      // Adders
+      procedure AddText(AText: TToastValue);
+      (* https://learn.microsoft.com/en-us/uwp/schemas/tiles/toastschema/element-audio *)
+      procedure AddAudio(URI: string; Loop: TWinBoolean = TWinBoolean.WinDefault; Silent: TWinBoolean=TWinBoolean.WinDefault); overload;
+      procedure AddAudio(CustomSound: TSoundEventValue; Loop: TWinBoolean=TWinBoolean.WinDefault; Silent: TWinBoolean=TWinBoolean.WinDefault); overload;
+      (* https://learn.microsoft.com/en-us/uwp/schemas/tiles/toastschema/element-image *)
+      procedure AddHeroImage(URI: TToastValue; AltText: string='');
+      procedure AddAppLogoOverride(URI: TToastValue; AdaptiveCrop: TImageCrop; AltText: string='');
+      procedure AddInlineImage(URI: TToastValue; AltText: string='';
+        AdaptiveCrop: TImageCrop=TImageCrop.Default; RemoveMargin: boolean=false);
+      (* https://learn.microsoft.com/en-us/uwp/schemas/tiles/toastschema/element-progress *)
+      procedure AddProgressBar(Title: TToastValue; Value: TToastValue); overload;
+      procedure AddProgressBar(Title: TToastValue; Value: TToastValue;
+        Indeterminate: TWinBoolean; ValueStringOverride: TToastValue;  Status: TToastValue); overload;
+      (* https://learn.microsoft.com/en-us/uwp/schemas/tiles/toastschema/element-input *)
+      procedure AddInputTextBox(ID: string; Placeholder: string=''; Title: string='');
+      procedure AddComboBox(ID: string; Title: string; SelectedItemID: string; Items: TArray<TToastComboItem>);
+      (* https://learn.microsoft.com/en-us/uwp/schemas/tiles/toastschema/element-action *)
+      procedure AddButton(Content: string; ActivationType: TActivationType; Arguments: string); overload;
+      procedure AddButton(Content: string; ActivationType: TActivationType; Arguments, ImageURI: string); overload;
+      (* https://learn.microsoft.com/en-us/uwp/schemas/tiles/toastschema/element-header *)
+      procedure AddHeader(ID, Title, Arguments: string);
+      
+      // Constructors
+      constructor Create;
+      destructor Destroy; override;
+    end;
 
     // Records
-    (* https://learn.microsoft.com/en-us/uwp/schemas/tiles/toastschema/element-header *)
+    
     TNotificationHeader = record
       ID: string;
       Title: string;
@@ -82,98 +275,6 @@ interface
       ActivationType: string;
 
       function ToXML: string;
-    end;
-
-    (* https://learn.microsoft.com/en-us/windows/apps/design/shell/tiles-and-notifications/adaptive-interactive-toasts?tabs=xml *)
-    TInputItem = record
-      ID: string;
-      Content: string;
-
-      function ToXML: string;
-    end;
-
-    TNotificationInput = record
-      ID: string;
-      InputType: TInputType;
-      PlaceHolder: string;
-      Title: string;
-
-      Selections: TArray<TInputItem>;
-
-      function ToXML: string;
-    end;
-
-    (* https://learn.microsoft.com/en-us/uwp/schemas/tiles/toastschema/element-image *)
-    TNotificationImage = record
-      ImageQuery: string;
-      Alt: string;
-      Source: string; // URL or Local file path
-      Placement: TImagePlacement;
-      HintCrop: TImageCrop;
-
-      function ToXML: string;
-    end;
-
-    (* https://learn.microsoft.com/en-us/uwp/schemas/tiles/toastschema/element-audio *)
-    TNotificationAudio = record
-      Sound: TSoundEventValue;
-      Loop: TWinBoolean;
-      Silent: TWinBoolean;
-
-      function ToXML: string;
-    end;
-
-    (* https://learn.microsoft.com/en-us/uwp/schemas/tiles/toastschema/element-progress *)
-    TNotificationProgress = record
-      Title: string;
-      Status: string; // Name, such as "installing" or "downloading"
-      Value: single; // 0.0 - 1.0
-      ValueOverride: string; // Override percentage text
-
-      function ToXML: string;
-    end;
-
-    // Classes
-    TNotification = class(TObject)
-    private
-      FTitle: string;
-      FText: string;
-      FTextExtra: string;
-
-      FXML: TXMLInterface;
-
-      FToast: IToastNotification;
-      FPosted: boolean;
-
-      function BuildXMLDoc: TXMLInterface;
-
-    public
-      // Basic
-      property Title: string read FTitle write FTitle;
-      property Text: string read FText write FText;
-      property TextExtra: string read FTextExtra write FTextExtra;
-
-      // Advanced
-      var
-      Image: TNotificationImage;
-      Audio: TNotificationAudio;
-      Progress: TNotificationProgress;
-      Input: TNotificationInput;
-      Header: TNotificationHeader;
-
-      property Toast: IToastNotification read FToast;
-      property Posted: boolean read FPosted;
-
-      // Procs
-      function ToXML: string;
-
-      procedure UpdateToastInterface; // rebuilds interface
-      procedure ClearToastInterface;
-
-      // Constructors
-      constructor Create;
-      destructor Destroy; override;
-
     end;
 
     TNotificationManager = class(TObject)
@@ -187,6 +288,7 @@ interface
 
       var
       FNotifier: IToastNotifier;
+      FNotifier2: IToastNotifier2;
       FAppID: string;
 
       FRegPath: string;
@@ -224,6 +326,8 @@ interface
       procedure ShowNotification(Notification: TNotification);
       procedure HideNotification(Notification: TNotification);
 
+      procedure UpdateNotification(Notification: TNotification);
+
       // Settings
       property CreateIconCache: boolean read FCreateIconCache write FCreateIconCache;
 
@@ -237,7 +341,6 @@ interface
 
       // Utils
       procedure ResetAppIcon;
-      function CreateNewNotification: TNotification;
       procedure CreateRegistryRecord;
       procedure DeleteRegistryRecord;
 
@@ -246,22 +349,18 @@ interface
       destructor Destroy; override;
     end;
 
+  // Interface IDs
+  const
+  IID_IToastNotifier2: TGUID = '{354389C6-7C01-4BD5-9C20-604340CD2B74}';
+  IID_IToastNotification2: TGUID = '{9DFB9FD1-143A-490E-90BF-B9FBA7132DE7}';
+  IID_IToastNotification3: TGUID = '{31E8AED8-8141-4F99-BC0A-C4ED21297D77}';
+  IID_IToastNotification4: TGUID = '{15154935-28EA-4727-88E9-C58680E2D118}';
+  IID_IToastNotification6: TGUID = '{43EBFE53-89AE-5C1E-A279-3AECFE9B6F54}';
+
   // Utils
   function AudioTypeToString(AType: TSoundEventValue): string;
-  function WinBooleanToString(AType: TWinBoolean): string;
-  function StringToRTString(Value: string): HSTRING; // Needs to be freed with WindowsDeleteString
-
-  // XML
-  function EncapsulateXML(Name: string; Container: string; Tags: string = ''): string;
-  function CreateNewXMLInterface: TXMLInterface;
-  function StringToXMLDocument(Str: string): TXMLInterface;
-  function XMLDocumentToString(AXML: TXMLInterface): string;
-  procedure XMLDocumentEdit(AXML: TXMLInterface; NewContents: string);
-
+  
 implementation
-
-const
-  NOTIF_BUILD_ERR = 'Notification toast has not been built. E:UpdateToastInterface';
 
 { TNotificationAudio }
 
@@ -298,296 +397,6 @@ begin
   end;
 end;
 
-function WinBooleanToString(AType: TWinBoolean): string;
-begin
-  case AType of
-    TWinBoolean.WinDefault: Result := 'default';
-    TWinBoolean.WinFalse: Result := 'false';
-    TWinBoolean.WinTrue: Result := 'true';
-  end;
-end;
-
-function StringToRTString(Value: string): HSTRING;
-begin
-  if NOT Succeeded(
-    WindowsCreateString(PWideChar(Value), Length(Value), Result)
-  )
-  then raise Exception.CreateFmt('Unable to create HString for %s', [ Value ] );
-end;
-
-function EncapsulateXML(Name: string; Container, Tags: string): string;
-var
-  TagBegin, TagEnd: string;
-begin
-  if Container <> '' then
-    TagEnd := Format('</%S>', [Name])
-  else
-    TagEnd := '';
-
-  TagBegin := Format('<%S', [Name]);
-  if Tags <> '' then
-    TagBegin := Format('%S %S', [TagBegin, Tags]);
-
-  if Container <> '' then
-    TagBegin := TagBegin + '>'
-  else
-    TagBegin := TagBegin + '/>';
-
-  Result := TagBegin + Container + TagEnd;
-end;
-
-function StringToXMLDocument(Str: string): TXMLInterface;
-begin
-  Result := CreateNewXMLInterface;
-  XMLDocumentEdit(Result, Str);
-end;
-
-function CreateNewXMLInterface: TXMLInterface;
-var
-  Manager: TToastNotificationManager;
-begin
-  Manager := TToastNotificationManager.Create;
-  try
-    Result := Manager.GetTemplateContent(ToastTemplateType.ToastText01);
-    XMLDocumentEdit(Result, '<xml />');
-  finally
-    Manager.Free;
-  end;
-end;
-
-function XMLDocumentToString(AXML: TXMLInterface): string;
-  function HStringToString(Src: HSTRING): String;
-  var
-    c: Cardinal;
-  begin
-    c := WindowsGetStringLen(Src);
-    Result := WindowsGetStringRawBuffer(Src, @c);
-  end;
-
-begin
-  Result := HStringToString(
-    ( AXML.DocumentElement as Xml_Dom_IXmlNodeSerializer ).GetXml
-  );
-end;
-
-procedure XMLDocumentEdit(AXML: TXMLInterface; NewContents: string);
-var
-  hXML: HSTRING;
-begin
-  hXML := StringToRTString( NewContents );
-  try
-    (AXML as Xml_Dom_IXmlDocumentIO).LoadXml( hXML );
-  finally
-    WindowsDeleteString( hXML );
-  end;
-end;
-
-function TNotificationAudio.ToXML: string;
-begin
-  Result := '';
-
-  if Sound <> TSoundEventValue.Default then
-    Result := Result + 'src="' + AudioTypeToString(Sound) + '" ';
-
-  if Loop <> TWinBoolean.WinDefault then
-    Result := Result + 'loop="' + WinBooleanToString(Loop) + '" ';
-
-  if Silent <> TWinBoolean.WinDefault then
-    Result := Result + 'silent="' + WinBooleanToString(Silent) + '"';
-
-  // Encapsulate
-  if Result <> '' then
-    Result := EncapsulateXML('audio', '', Result);
-end;
-
-{ TNotification }
-
-function TNotification.BuildXMLDoc: TXMLInterface;
-begin
-  Result := StringToXMLDocument( ToXML );
-end;
-
-procedure TNotification.ClearToastInterface;
-begin
-  FToast := nil;
-
-  // Reset
-  FPosted := false;
-end;
-
-constructor TNotification.Create;
-begin
-  inherited;
-  FTitle := 'Hello world!';
-  FText := 'This is a notification';
-
-  FXML := CreateNewXMLInterface;
-end;
-
-destructor TNotification.Destroy;
-begin
-  FXML := nil;
-
-  inherited;
-end;
-
-function TNotification.ToXML: string;
-function TextToXML(Value: string): string;
-begin
-  if Value <> '' then
-    Result := EncapsulateXML('text', Value)
-  else
-    Result := '';
-end;
-begin
-  Result := '';
-
-  Result := Result + '<toast activationType="protocol">';
-    // Visual
-    Result := Result + '<visual>';
-      Result := Result + '<binding template="ToastGeneric">';
-        // Text
-        Result := Result + TextToXML(Title);
-        Result := Result + TextToXML(Text);
-        Result := Result + TextToXML(TextExtra);
-
-        // Extra
-        Result := Result + Image.ToXML;
-        Result := Result + Progress.ToXML;
-      Result := Result + '</binding>';
-    Result := Result + '</visual>';
-
-    // Input
-    const Input = Input.ToXML;
-    if Input <> '' then
-    Result := Result + EncapsulateXML('actions', Input);
-
-    // Audio
-    Result := Result + Audio.ToXML;
-
-    // Header
-    Result := Result + Header.ToXML;
-  Result := Result + '</toast>';
-end;
-
-procedure TNotification.UpdateToastInterface;
-begin
-  ClearToastInterface;
-
-  FToast := TToastNotification.CreateToastNotification(BuildXMLDoc);
-end;
-
-{ TNotificationProgress }
-
-function TNotificationProgress.ToXML: string;
-begin
-  Result := '';
-
-  // Check disabled/invalid
-  if Status = '' then
-    Exit;
-
-  if Title <> '' then
-    Result := Result + 'title="' + Title + '" ';
-
-  Result := Result + 'status="' + Status + '" ';
-  Result := Result + 'value="' + Value.ToString + '" ';
-
-  if ValueOverride <> '' then
-    Result := Result + 'valueStringOverride="' + ValueOverride + '"';
-
-  // Encapsulate
-  if Result <> '' then
-    Result := EncapsulateXML('progress', '', Result);
-end;
-
-{ TNotificationImage }
-
-function TNotificationImage.ToXML: string;
-begin
-  Result := '';
-
-  // Check disabled/invalid
-  if Source = '' then
-    Exit;
-
-  if ImageQuery <> '' then
-    Result := Result + 'addImageQuery="' + ImageQuery + '" ';
-
-  if Alt <> '' then
-    Result := Result + 'alt="' + Alt + '" ';
-
-  Result := Result + 'src="' + Source + '" ';
-
-  case Placement of
-    TImagePlacement.Hero: Result := Result + 'placement="hero" ';
-    TImagePlacement.LogoOverride: Result := Result + 'placement="appLogoOverride" ';
-  end;
-
-  case HintCrop of
-    TImageCrop.Circle: Result := Result + 'hint-crop="circle" ';
-  end;
-
-  // Encapsulate
-  if Result <> '' then
-    Result := EncapsulateXML('image', '', Result);
-end;
-
-{ TInputItem }
-
-function TInputItem.ToXML: string;
-begin
-  Result := '';
-
-  // Check disabled/invalid
-  if ID = '' then
-    Exit;
-
-  Result := Result + 'id="' + ID + '" ';
-  Result := Result + 'content="' + Content + '" ';
-
-  // Encapsulate
-  if Result <> '' then
-    Result := EncapsulateXML('selection', '', Result);
-end;
-
-{ TNotificationInput }
-
-function TNotificationInput.ToXML: string;
-var
-  Inputs: string;
-  I: integer;
-begin
-  Result := '';
-
-  // Check disabled/invalid
-  if ID = '' then
-    Exit;
-
-  Result := Result + 'id="' + ID + '" ';
-
-  case InputType of
-    TInputType.Text: Result := Result + 'type="text" ';
-    TInputType.Selection: Result := Result + 'type="selection" ';
-  end;
-
-  if PlaceHolder <> '' then
-    Result := Result + 'placeHolderContent="' + PlaceHolder + '" ';
-
-  if Title <> '' then
-    Result := Result + 'title="' + Title + '" ';
-
-  // Inputs
-  Inputs := '';
-  if Length(Selections) > 0 then
-    for I := 0 to High(Selections) do
-      Inputs := Inputs + Selections[I].ToXML;
-
-  // Encapsulate
-  if Result <> '' then
-    Result := EncapsulateXML('input', Inputs, Result);
-end;
-
 { TNotificationManager }
 
 constructor TNotificationManager.Create;
@@ -607,11 +416,6 @@ begin
     TDirectory.CreateDirectory(NOTIF_FOLDER);
 
   Application.Icon.SaveToFile(Result);
-end;
-
-function TNotificationManager.CreateNewNotification: TNotification;
-begin
-  Result := TNotification.Create;
 end;
 
 procedure TNotificationManager.CreateRegistryRecord;
@@ -708,21 +512,27 @@ end;
 
 procedure TNotificationManager.HideNotification(Notification: TNotification);
 begin
-  if Notification.Toast = nil then
-    raise Exception.Create(NOTIF_BUILD_ERR);
+  if not Notification.Posted then
+    raise Exception.Create('Notification is not visible.');
 
-  FNotifier.Hide(Notification.Toast);
+  FNotifier.Hide(Notification.FToast);
 end;
 
 procedure TNotificationManager.RebuildNotifier;
 var
   AName: HSTRING;
-begin
+begin                                         
   FNotifier := nil;
-
-  AName := StringToRTString(FAppID);
+  FNotifier2 := nil;
+                        
+  // Create IToastInterface
+  AName := StringToHString(FAppID);
   FNotifier := TToastNotificationManager.CreateToastNotifier(AName);
-  WindowsDeleteString(AName);
+  FreeHString(AName);
+          
+  // Query IToastInterace2
+  if Supports(FNotifier, IToastNotifier2, FNotifier2) then
+    FNotifier.QueryInterface(IID_IToastNotifier2, FNotifier2);
 end;
 
 procedure TNotificationManager.SetAppActivator(const Value: string);
@@ -810,19 +620,51 @@ end;
 
 procedure TNotificationManager.ShowNotification(Notification: TNotification);
 begin
-  // Created
-  if Notification.Toast = nil then
-    raise Exception.Create(NOTIF_BUILD_ERR);
+  if Notification.Posted then
+    raise Exception.Create('Notification has already been posted.');
 
   // Register
   if not HasRegistryRecord then
     CreateRegistryRecord;
 
   // Show
-  FNotifier.Show(Notification.Toast);
+  FNotifier.Show(Notification.FToast);
 
   // Status
   Notification.FPosted := true;
+end;
+
+procedure TNotificationManager.UpdateNotification(Notification: TNotification);
+var
+  Data: TNotificationData;
+  HS_Tag, HS_Group: HSTRING;
+begin
+  if not Notification.Posted then
+    raise Exception.Create('Notification is not active.');
+
+  if Notification.Tag = '' then
+    raise Exception.Create('Tag is required to update notification.');
+
+  // Get data
+  Data := Notification.Data;
+
+  // Update
+  HS_Tag := StringToHString(Notification.Tag);
+  HS_Group := StringToHString(Notification.Group);
+
+  try             
+    var Result: NotificationUpdateResult;
+    if Notification.Group = '' then
+      Result := FNotifier2.Update(Data.Data, HS_Tag)
+    else
+      Result := FNotifier2.Update(Data.Data, HS_Tag, HS_Group);
+      
+    if Result <> NotificationUpdateResult.Succeeded then
+      raise Exception.CreateFmt('Update procedure or IToastNotifier2 failed, with a result of: %D', [integer(Result)]);
+  finally
+    FreeHString(HS_Tag);
+    FreeHString(HS_Group);
+  end;
 end;
 
 { TNotificationHeader }
@@ -845,6 +687,504 @@ begin
   // Encapsulate
   if Result <> '' then
     Result := EncapsulateXML('header', '', Result);
+end;
+
+{ TNotificationActivatedHandler }
+
+procedure TNotificationActivatedHandler.Invoke(sender: IToastNotification;
+  args: IInspectable);
+begin
+  ShowMessage('activated');
+end;
+
+{ TNotificationDismissHandler }
+
+procedure TNotificationDismissHandler.Invoke(sender: IToastNotification;
+  args: IToastDismissedEventArgs);
+begin
+  ShowMessage('dismiss');
+end;
+
+{ TNotificationFailedHandler }
+
+
+{ TNotificationFailedHandler }
+
+procedure TNotificationFailedHandler.Invoke(sender: IToastNotification;
+  args: IToastFailedEventArgs);
+begin
+  ShowMessage('fail');
+end;
+
+{ TToastStringValue }
+
+constructor TToastValueString.Create(AValue: string);
+begin
+  Value := AValue;
+end;
+
+function TToastValueString.ToXML: string;
+begin
+  Result := Value;
+end;
+
+{ TNotificationBindableValue }
+
+function TToastValueBindable.ToXML: string;
+begin
+  Result := Format('{%S}', [Value]);
+end;
+
+{ TToastContentBuilder }
+
+procedure TToastContentBuilder.AddAudio(URI: string; Loop, Silent: TWinBoolean);
+begin
+  with FXML.Nodes.AddNode('audio') do begin
+    Attributes['src'] := URI;
+
+    if Loop <> TWinBoolean.WinDefault then
+      Attributes['loop'] := WinBooleanToString(Loop);
+    if Silent <> TWinBoolean.WinDefault then
+      Attributes['silent'] := WinBooleanToString(Silent);
+  end;
+end;
+
+procedure TToastContentBuilder.AddAppLogoOverride(URI: TToastValue;
+  AdaptiveCrop: TImageCrop; AltText: string);
+begin
+  with FXMLBinding.Nodes.AddNode('image') do begin
+    Attributes['src'] := URI.ToXML;
+    Attributes['placement'] := 'appLogoOverride';
+
+    case AdaptiveCrop of
+      TImageCrop.None: Attributes['hint-crop'] := 'none';
+      TImageCrop.Circle: Attributes['hint-crop'] := 'circle';
+    end;
+    
+    Attributes['alt'] := AltText;
+  end;
+
+  HandleValues([URI]);
+end;
+
+procedure TToastContentBuilder.AddAudio(CustomSound: TSoundEventValue; Loop,
+  Silent: TWinBoolean);
+begin
+  AddAudio(AudioTypeToString(CustomSound), Loop, Silent);
+end;
+
+procedure TToastContentBuilder.AddButton(Content: string;
+  ActivationType: TActivationType; Arguments, ImageURI: string);
+begin
+  EnsureActions;
+  
+  with FXMLActions.Nodes.AddNode('action') do begin
+    Attributes['content'] := Content;
+    Attributes['arguments'] := Arguments;
+    Attributes['arguments'] := Arguments;
+
+    var S: string; S := '';
+    case ActivationType of
+      TActivationType.Foreground: S := 'foreground';
+      TActivationType.Background: S := 'background';
+      TActivationType.Protocol: S := 'protocol';
+    end;
+    if S <> '' then
+      Attributes['type'] := S;
+
+    if ImageURI <> '' then
+      Attributes['imageUri'] := ImageURI;
+  end;
+end;
+
+procedure TToastContentBuilder.AddComboBox(ID: string; Title: string;
+  SelectedItemID: string; Items: TArray<TToastComboItem>);
+begin
+  EnsureActions;
+  
+  with FXMLActions.Nodes.AddNode('input') do begin    
+    Attributes['id'] := ID;
+    Attributes['type'] := 'selection';
+    Attributes['title'] := Title;
+    Attributes['defaultInput'] := SelectedItemID;
+    
+    for var I := 0 to High(Items) do
+      with Nodes.AddNode('selection') do begin
+        Attributes['id'] := Items[I].ID;
+        Attributes['content'] := Items[I].Content;
+      end;
+  end;
+end;
+
+procedure TToastContentBuilder.AddButton(Content: string;
+  ActivationType: TActivationType; Arguments: string);
+begin
+  AddButton(Content, ActivationType, Arguments, '');
+end;
+
+procedure TToastContentBuilder.AddHeader(ID, Title, Arguments: string);
+begin
+  with FXML.Nodes.AddNode('header') do begin
+    Attributes['id'] := ID;
+    Attributes['title'] := Title;
+    Attributes['arguments'] := Arguments;
+  end;
+end;
+
+procedure TToastContentBuilder.AddHeroImage(URI: TToastValue; AltText: string);
+begin
+  with FXMLBinding.Nodes.AddNode('image') do begin
+    Attributes['src'] := URI.ToXML;
+    Attributes['placement'] := 'hero';
+    
+    Attributes['alt'] := AltText;
+  end;
+
+  HandleValues([URI]);
+end;
+
+procedure TToastContentBuilder.AddInlineImage(URI: TToastValue; AltText: string;
+  AdaptiveCrop: TImageCrop; RemoveMargin: boolean);
+begin
+  with FXMLBinding.Nodes.AddNode('image') do begin
+    Attributes['src'] := URI.ToXML;
+
+    case AdaptiveCrop of
+      TImageCrop.None: Attributes['hint-crop'] := 'none';
+      TImageCrop.Circle: Attributes['hint-crop'] := 'circle';
+    end;
+    
+    Attributes['alt'] := AltText;
+  end;
+
+  HandleValues([URI]);
+end;
+
+procedure TToastContentBuilder.AddInputTextBox(ID, Placeholder, Title: string);
+begin
+  EnsureActions;
+  
+  with FXMLActions.Nodes.AddNode('input') do begin    
+    Attributes['id'] := ID;
+    Attributes['type'] := 'text';
+    Attributes['title'] := Title;
+    Attributes['placeHolderContent'] := Placeholder;
+  end;
+end;
+
+procedure TToastContentBuilder.AddProgressBar(Title, Value: TToastValue;
+  Indeterminate: TWinBoolean; ValueStringOverride, Status: TToastValue);
+begin
+  with FXMLBinding.Nodes.AddNode('progress') do begin
+    case Indeterminate of
+      WinTrue: Attributes['value'] := 'indeterminate';
+      else Attributes['value'] := Value.ToXML;
+    end;
+    
+    Attributes['title'] := Title.ToXML;
+    const S = ValueStringOverride.ToXML;
+    if S <> '' then
+      Attributes['valueStringOverride'] := ValueStringOverride.ToXML;
+    Attributes['status'] := Status.ToXML;
+  end;
+
+  HandleValues([Title, Value, ValueStringOverride, Status]);
+end;
+
+procedure TToastContentBuilder.AddProgressBar(Title, Value: TToastValue);
+begin
+  AddProgressBar(Title, Value, WinFalse, TToastValueString.Create(''),
+    TToastValueString.Create(''));
+end;
+
+procedure TToastContentBuilder.AddText(AText: TToastValue);
+begin
+  FXMLBinding.Nodes.AddNode('text').Contents := AText.ToXML;
+
+  HandleValues([AText]);
+end;
+
+constructor TToastContentBuilder.Create;
+begin
+  FXML := TWinXMLDocument.Create;
+  FXML.TagName := 'toast';
+
+  FXML.Attributes['activationType'] := 'protocol';
+  FXMLVisual := FXML.Nodes.AddNode('visual');
+  FXMLBinding:= FXMLVisual.Nodes.AddNode('binding');
+  FXMLBinding.Attributes['template']:='ToastGeneric';
+end;
+
+destructor TToastContentBuilder.Destroy;
+begin
+  FXML.Free;
+  inherited;
+end;
+
+procedure TToastContentBuilder.EnsureActions;
+begin
+  if FXMLActions = nil then
+    FXMLActions:= FXML.Nodes.AddNode('actions');
+end;
+
+function TToastContentBuilder.GetXML: TDomXMLDocument;
+begin
+  Result := TDomXMLDocument.Create;
+  const XML = FXML.OuterXML;
+
+  Result.Parse( XML );
+end;
+
+procedure TToastContentBuilder.HandleValues(AValues: TArray<TToastValue>);
+begin
+  for var I := 0 to High(AValues) do begin
+    // Free memory
+    AValues[I].Free;
+  end;
+end;
+
+{ TNotification }
+
+function TNotification.Content: TXMLInterface;
+begin
+  Result := FToast.Content;
+end;
+
+constructor TNotification.Create(XMLDocument: TDomXMLDocument);
+begin
+  FToast := TToastNotification.CreateToastNotification( XMLDocument.DomXML );
+            
+  if Supports(FToast, IID_IToastNotification2) then
+    FToast.QueryInterface(IID_IToastNotification2, FToast2);
+  if Supports(FToast, IID_IToastNotification3) then
+    FToast.QueryInterface(IID_IToastNotification3, FToast3);
+  if Supports(FToast, IID_IToastNotification4) then
+    FToast.QueryInterface(IID_IToastNotification4, FToast4);
+  if Supports(FToast, IID_IToastNotification6) then
+    FToast.QueryInterface(IID_IToastNotification6, FToast6);
+end;
+
+function TNotification.GetExireReboot: boolean;
+begin
+  Result := FToast6.ExpiresOnReboot;
+end;
+
+function TNotification.GetExpiration: TDateTime;
+begin       
+  Result := UnixToDateTime(
+    FToast.ExpirationTime.Value.UniversalTime,
+    false // no utc
+    );
+end;
+
+function TNotification.GetGroup: string;
+begin
+  const HStr = FToast2.Group;
+  Result := HStr.ToString;
+  HStr.Free;
+end;
+
+function TNotification.GetMirroring: NotificationMirroring;
+begin
+  Result := FToast3.NotificationMirroring_;
+end;
+
+function TNotification.GetPriority: ToastNotificationPriority;
+begin
+  Result := FToast4.Priority;
+end;
+
+function TNotification.GetRemoteID: string;
+begin
+  const HStr = FToast3.RemoteId;
+  Result := HStr.ToString;
+  HStr.Free;
+end;
+
+function TNotification.GetSuppress: boolean;
+begin
+  Result := FToast2.SuppressPopup;
+end;
+
+function TNotification.GetTag: string;
+begin
+  const HStr = FToast2.Tag;
+  Result := HStr.ToString;
+  HStr.Free;
+end;
+
+procedure TNotification.SetData(const Value: TNotificationData);
+begin
+  FData := Value;
+  FToast4.Data := Value.Data;
+end;
+
+procedure TNotification.SetExpiration(const Value: TDateTime);
+const
+  TicksPerSecond = 100000000;
+var
+  Reference: IReference_1__DateTime;
+  WinDateTime: Winapi.CommonTypes.DateTime;
+begin
+  // Convert TDateTime to Windows.Foundation.DateTime
+  WinDateTime.UniversalTime := DateTimeToUnix(Now, false);
+
+  // Create a new instance of IReference_1__DateTime
+  TPropertyValue.CreateDateTime(WinDateTime).QueryInterface(IReference_1__DateTime, Reference);
+
+  // Now you can assign this reference to ExpirationTime
+  FToast.ExpirationTime := Reference;
+end;
+
+procedure TNotification.SetExpireReboot(const Value: boolean);
+begin
+  FToast6.ExpiresOnReboot := Value;
+end;
+
+procedure TNotification.SetGroup(const Value: string);
+begin
+  const HStr = HString.Create(Value);
+  FToast2.Group;
+  HStr.Free;
+end;
+
+procedure TNotification.SetMirroring(const Value: NotificationMirroring);
+begin
+  FToast3.NotificationMirroring_ := Value;    
+end;
+
+procedure TNotification.SetPriority(
+  const Value: ToastNotificationPriority);
+begin
+  FToast4.Priority := Value;;
+end;
+
+procedure TNotification.SetRemoteID(const Value: string);
+begin
+  const HStr = HString.Create(Value);
+  FToast3.RemoteId := HStr;
+  HStr.Free;
+end;
+
+procedure TNotification.SetSuppress(const Value: boolean);
+begin
+  FToast2.SuppressPopup := Value;
+end;
+
+procedure TNotification.SetTag(const Value: string);
+begin
+  const HStr = HString.Create(Value);
+  FToast2.Tag := HStr;
+  HStr.Free;
+end;
+
+{ TNotificationData }
+
+procedure TNotificationData.Clear;
+begin
+  Data.Values.Clear;
+end;
+
+constructor TNotificationData.Create;
+var
+  instance: IInspectable;
+  className: HSTRING;
+begin                     
+  Data := nil;
+                     
+  // Runtime class
+  className := hstring.Create('Windows.UI.Notifications.NotificationData');
+
+  // Activate the instance
+  try
+    if Failed(RoActivateInstance(className, instance)) then
+      raise Exception.Create('Could not create notification data.');
+  finally
+    className.Free;
+  end;
+
+  // Query the interface
+  instance.QueryInterface(INotificationData, Data);
+end;
+
+destructor TNotificationData.Destroy;
+begin
+  Data := nil;
+  inherited;
+end;
+
+function TNotificationData.GetSeq: cardinal;
+begin
+  Result := Data.SequenceNumber;
+end;
+
+function TNotificationData.GetValue(Key: string): string;
+begin
+  const HKey = HString.Create(Key);
+  try
+    if Data.Values.HasKey(HKey) then begin
+      const HData = Data.Values.Lookup(HKey);
+      try
+        Result := HData.ToString;
+      finally
+        HData.Free;
+      end;
+    end;
+  finally
+    HKey.Free;
+  end;
+end;
+
+procedure TNotificationData.IncreaseSequence;
+begin
+  SequenceNumber := SequenceNumber + 1;
+end;
+
+procedure TNotificationData.SetSeq(const Value: cardinal);
+begin
+  Data.SequenceNumber := Value;
+end;
+
+procedure TNotificationData.SetValue(Key: string; const Value: string);
+begin
+  const HKey = HString.Create(Key);
+  const HData = HString.Create(Value);
+  try
+    if Data.Values.HasKey(HKey) then 
+      Data.Values.Remove(HKey);
+
+    Data.Values.Insert(HKey, HData);
+  finally
+    HKey.Free;
+    HData.Free;
+  end;
+end;
+
+function TNotificationData.ValueCount: cardinal;
+begin
+  Result := Data.Values.Size;
+end;
+
+function TNotificationData.ValueExists(Key: string): boolean;
+begin
+  const HStr = HString.Create(Key);
+  try
+    Result := Data.Values.HasKey(HStr);
+  finally
+    HStr.Free;
+  end;
+end;
+
+{ TToastValueSingle }
+
+constructor TToastValueSingle.Create(AValue: single);
+begin
+  Value := AValue;
+end;
+
+function TToastValueSingle.ToXML: string;
+begin
+  Result := Value.ToString;
 end;
 
 end.
