@@ -19,9 +19,8 @@ Notification Manager for advanced notifications in Windows 10/11
 ## Examples
 ### Create notification manager
 ```
-  Manager := TNotificationManager.Create;
+  Manager := TNotificationManager.Create('App.Test');
 
-  Manager.ApplicationIdentifier := 'App.Test';
   Manager.ApplicationName := 'Amazing application';
   Manager.ShowInSettings := true;
 ```
@@ -49,6 +48,10 @@ Notification Manager for advanced notifications in Windows 10/11
       Notif.Data := TNotificationData.Create;
       Notif.Data['title'] := 'Hello world!';
       Notif.Data['download-pos'] := '0';
+
+      // Events (must be defined in your form class)
+      Notif.OnActivated := NotifActivated;
+      Notif.OnDismissed := NotifDismissed;
     finally
       Free;
     end;
@@ -74,6 +77,19 @@ Notification Manager for advanced notifications in Windows 10/11
 
   // Update
   Manager.UpdateNotification(Notif);
+```
+
+### Reading event data
+```
+procedure TForm1.NotifActivated(Sender: TNotification; Arguments: string; UserInput: TUserInputMap);
+var
+  Value: string;
+begin
+  // Get button id
+  if Arguments = 'view' then
+    // Get value of edit box (if there is one with this id)
+    Value := UserInput.GetStringValue('editbox-id');
+end;
 ```
 
 ## Important notes
