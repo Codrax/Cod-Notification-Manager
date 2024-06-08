@@ -22,6 +22,7 @@ interface
   DateUtils,
 
   // Windows RT (Runtime)
+  Win.WinRT,
   Winapi.Winrt,
   Winapi.Winrt.Utils,
   Winapi.DataRT,
@@ -36,6 +37,10 @@ interface
   Cod.Registry;
 
   type
+    // Predefine
+    TNotification = class;
+    TUserInputMap = class;
+
     // Cardinals
     TSoundEventValue = (
       Default,
@@ -65,12 +70,31 @@ interface
       NotificationLoopingCall9,
       NotificationLoopingCall10
     );
-
-    // Cardinals
     TImagePlacement = (Default, Hero, LogoOverride);
     TImageCrop = (Default, None, Circle);
     TInputType = (Text, Selection);
     TActivationType = (Default, Foreground, Background, Protocol);
+    TToastDuration = (Default, // Use default: short
+      Short, // Show for 7s
+      Long // Show for 25s
+    );
+    TAudioMode = (
+      Default, // the notification controls the audio
+      Muted, // no audio
+      Custom // custom audio overrides all toast sounds
+    );
+    TNotificationRank = (Default, Normal, High, Topmost);
+    TToastScenario = (Default, // Default notification behaviour
+      Alarm, // Show on screen until the user takes action, NotificationLoopingAlarm selected by default
+      Reminder, // Show on screen until the user takes action
+      IncomingCall // Show on screen until the user takes action, NotificationLoopingCall selected by default
+      );
+    TToastDismissReason = ToastDismissalReason;
+
+    // Events
+    TOnToastActivated = procedure(Sender: TNotification; Arguments: string; UserInput: TUserInputMap) of Object;
+    TOnToastDismissed = procedure(Sender: TNotification; Reason: TToastDismissReason) of Object;
+    TOnToastFailed = procedure(Sender: TNotification; ErrorCode: HRESULT) of Object;
 
     // Record
     TToastComboItem = record
@@ -79,23 +103,38 @@ interface
     end;
 
     // Events
-    TNotificationEventHandler = class(TInterfacedObject)
+    TNotificationEventHandler = class(TInspectableObject)
+      private
+        FNotification: TNotification;
+        FToken: EventRegistrationToken;
+
       public
-        Token: EventRegistrationToken;
+        constructor Create(const ANotification: TNotification); virtual;
+        destructor Destroy; override;
     end;
 
-    TNotificationActivatedHandler = class(TNotificationEventHandler, TypedEventHandler_2__IToastNotification__IInspectable)
+    TNotificationActivatedHandler = class(TNotificationEventHandler, TypedEventHandler_2__IToastNotification__IInspectable,
+      TypedEventHandler_2__IToastNotification__IInspectable_Delegate_Base)
       procedure Invoke(sender: IToastNotification; args: IInspectable); safecall;
-    public
-      Token: EventRegistrationToken;
+
+      constructor Create(const ANotification: TNotification); override;
+      destructor Destroy; override;
     end;
 
-    TNotificationDismissHandler = class(TNotificationEventHandler, TypedEventHandler_2__IToastNotification__IToastDismissedEventArgs)
+    TNotificationDismissedHandler = class(TNotificationEventHandler, TypedEventHandler_2__IToastNotification__IToastDismissedEventArgs,
+      TypedEventHandler_2__IToastNotification__IToastDismissedEventArgs_Delegate_Base)
       procedure Invoke(sender: IToastNotification; args: IToastDismissedEventArgs); safecall;
+
+      constructor Create(const ANotification: TNotification); override;
+      destructor Destroy; override;
     end;
 
-    TNotificationFailedHandler = class(TNotificationEventHandler, TypedEventHandler_2__IToastNotification__IToastFailedEventArgs)
+    TNotificationFailedHandler = class(TNotificationEventHandler, TypedEventHandler_2__IToastNotification__IToastFailedEventArgs,
+      TypedEventHandler_2__IToastNotification__IToastFailedEventArgs_Delegate_Base)
       procedure Invoke(sender: IToastNotification; args: IToastFailedEventArgs); safecall;
+
+      constructor Create(const ANotification: TNotification); override;
+      destructor Destroy; override;
     end;
 
     // Values
@@ -155,6 +194,19 @@ interface
       destructor Destroy; override;
     end;
 
+    // User input parser
+    TUserInputMap = class
+    private
+      FMap: IMap_2__HSTRING__IInspectable;
+    public
+      function HasValue(ID: string): boolean;
+      function GetStringValue(ID: string): string;
+      function GetIntValue(ID: string): integer;
+
+      constructor Create(LookupMap: IMap_2__HSTRING__IInspectable);
+      destructor Destroy; override;
+    end;
+
     // Toast notification
     TNotification = class
     private
@@ -169,8 +221,18 @@ interface
 
       FToastScheduled: IScheduledToastNotification;
 
+      // Notify events
+      FOnActivated: TOnToastActivated;
+      FOnDismissed: TOnToastDismissed;
+      FOnFailed: TOnToastFailed;
+      FHandleActivated: TNotificationActivatedHandler;
+      FHandleDismissed: TNotificationDismissedHandler;
+      FHandleFailed: TNotificationFailedHandler;
+
       // Interface-access classes
       FData: TNotificationData;
+
+      procedure FreeEvents;
 
       procedure Initiate(XML: Xml_Dom_IXmlDocument);
 
@@ -191,6 +253,9 @@ interface
       procedure SetPriority(const Value: ToastNotificationPriority);
       function GetExireReboot: boolean;
       procedure SetExpireReboot(const Value: boolean);
+      procedure SetEventActivated(const Value: TOnToastActivated);
+      procedure SetEventDismissed(const Value: TOnToastDismissed);
+      procedure SetEventFailed(const Value: TOnToastFailed);
     public
       // Data read
       property Posted: boolean read FPosted;
@@ -204,9 +269,6 @@ interface
       ///  screen or of It's placed directly in the action center.
       ///  </summary>
       property SuppressPopup: boolean read GetSuppress write SetSuppress;
-
-      // Events
-      property ExportToast: IToastNotification read FToast;
 
       // Identifier
       property Tag: string read GetTag write SetTag;
@@ -224,6 +286,11 @@ interface
 
       // Expire notification after reboot
       property ExpiresOnReboot: boolean read GetExireReboot write SetExpireReboot;
+
+      // Events
+      property OnActivated: TOnToastActivated read FOnActivated write SetEventActivated;
+      property OnDismissed: TOnToastDismissed read FOnDismissed write SetEventDismissed;
+      property OnFailed: TOnToastFailed read FOnFailed write SetEventFailed;
 
       // Utils
       /// <summary>
@@ -272,21 +339,19 @@ interface
       procedure AddButton(Content: string; ActivationType: TActivationType; Arguments, ImageURI: string); overload;
       (* https://learn.microsoft.com/en-us/uwp/schemas/tiles/toastschema/element-header *)
       procedure AddHeader(ID, Title, Arguments: string);
-      
+
+      (* https://learn.microsoft.com/en-us/dotnet/api/microsoft.toolkit.uwp.notifications.toastcontentbuilder.settoastduration *)
+      procedure SetToastDuration(Duration: TToastDuration);
+
+      (* https://learn.microsoft.com/en-us/dotnet/api/microsoft.toolkit.uwp.notifications.toastcontent.scenario *)
+      procedure SetToastScenario(Scenario: TToastScenario);
+
+      procedure SetBackgroundActivation;
+      procedure SetProtocolActivation(URI: string);
+
       // Constructors
       constructor Create;
       destructor Destroy; override;
-    end;
-
-    // Records
-    
-    TNotificationHeader = record
-      ID: string;
-      Title: string;
-      Arguments: string;
-      ActivationType: string;
-
-      function ToXML: string;
     end;
 
     TNotificationManager = class(TObject)
@@ -304,6 +369,7 @@ interface
       FAppID: string;
 
       FRegPath: string;
+      FRegSettingsPath: string;
       FIsSystemIcon: boolean;
       FCreateIconCache: boolean;
 
@@ -312,7 +378,6 @@ interface
 
       // Registry
       function HasRegistryRecord: boolean;
-      function FormatRegistry(AIdentifier: string): string;
 
       function GetModuleName: string;
       function CreateAppIconCache: string;
@@ -324,6 +389,12 @@ interface
       function GetAppLaunch: string;
       function GetAppActivator: string;
       function GetShowSettings: boolean;
+      function GetHideLockScreen: TWinBoolean;
+      function GetShowBanner: TWinBoolean;
+      function GetShowInActionCenter: TWinBoolean;
+      function GetRank: TNotificationRank;
+      function GetStatusInteractionCount: integer;
+      function GetStatusNotificationCount: integer;
 
       // Setters
       procedure SetAppID(const Value: string);
@@ -331,7 +402,11 @@ interface
       procedure SetAppName(const Value: string);
       procedure SetAppLaunch(const Value: string);
       procedure SetAppActivator(const Value: string);
-      procedure SetGetShowSettings(const Value: boolean);
+      procedure SetShowSettings(const Value: boolean);
+      procedure SetHideLockScreen(const Value: TWinBoolean);
+      procedure SetShowBanner(const Value: TWinBoolean);
+      procedure SetShowInActionCenter(const Value: TWinBoolean);
+      procedure SetRank(const Value: TNotificationRank);
 
     public
       // Notificaitons
@@ -344,22 +419,34 @@ interface
       property CreateIconCache: boolean read FCreateIconCache write FCreateIconCache;
 
       // App
-      property ApplicationIdentifier: string read FAppID write SetAppID; // set first!
+      property ApplicationIdentifier: string read FAppID write SetAppID; // must be set first!
       property ApplicationName: string read GetAppName write SetAppName;
       property ApplicationIcon: string read GetAppIcon write SetAppIcon;
       property ApplicationLaunch: string read GetAppLaunch write SetAppLaunch;
       property CustomActivator: string read GetAppActivator write SetAppActivator;
-      property ShowInSettings: boolean read GetShowSettings write SetGetShowSettings;
+      property ShowInSettings: boolean read GetShowSettings write SetShowSettings;
+
+      // Action Center Settings
+      property HideOnLockScreen: TWinBoolean read GetHideLockScreen write SetHideLockScreen;
+      property ShowBanner: TWinBoolean read GetShowBanner write SetShowBanner;
+      property ShowInActionCenter: TWinBoolean read GetShowInActionCenter write SetShowInActionCenter;
+      property Rank: TNotificationRank read GetRank write SetRank;
+
+      // Status and telemetry
+      property TotalNotificationCount: integer read GetStatusNotificationCount;
+      property TotalInteractionCount: integer read GetStatusInteractionCount;
 
       // Utils
       procedure ResetAppIcon;
+      procedure CustomAudioMode(AudioMode: TAudioMode; SoundFilePath: string='');
       procedure CreateRegistryRecord;
       procedure DeleteRegistryRecord;
 
       property P: IToastNotifier read FNotifier;
 
       // Constructors
-      constructor Create;
+      constructor Create; overload;
+      constructor Create(ApplicationID: string); overload;
       destructor Destroy; override;
     end;
 
@@ -421,6 +508,12 @@ begin
   FCreateIconCache := true;
 end;
 
+constructor TNotificationManager.Create(ApplicationID: string);
+begin
+  inherited Create;
+  SetAppID( ApplicationID );
+end;
+
 function TNotificationManager.CreateAppIconCache: string;
 const
   NOTIF_FOLDER = 'C:\Users\Codrut\AppData\Local\Microsoft\Windows\Notifications\ActionCenter\';
@@ -446,6 +539,20 @@ begin
     end;
 end;
 
+procedure TNotificationManager.CustomAudioMode(AudioMode: TAudioMode;
+  SoundFilePath: string);
+begin
+  const VAL = 'SoundFile';
+
+  case AudioMode of
+    TAudioMode.Default:
+      if TQuickReg.ValueExists(FRegSettingsPath, VAL) then
+        TQuickReg.DeleteValue(FRegSettingsPath, VAL);
+    TAudioMode.Muted: TQuickReg.WriteValue(FRegSettingsPath, VAL, '');
+    TAudioMode.Custom: TQuickReg.WriteValue(FRegSettingsPath, VAL, SoundFilePath);
+  end;
+end;
+
 procedure TNotificationManager.DeleteIconCache;
 begin
   const Path = GetAppIcon;
@@ -468,11 +575,6 @@ destructor TNotificationManager.Destroy;
 begin
   FNotifier := nil;
   inherited;
-end;
-
-function TNotificationManager.FormatRegistry(AIdentifier: string): string;
-begin
-  Result := Format('HKEY_CURRENT_USER\Software\Classes\AppUserModelId\%S', [AIdentifier]);
 end;
 
 function TNotificationManager.GetAppActivator: string;
@@ -507,9 +609,49 @@ begin
       Result := TQuickReg.GetStringValue(FRegPath, VALUE_NAME);
 end;
 
+function TNotificationManager.GetHideLockScreen: TWinBoolean;
+begin
+  Result := WinDefault;
+  const VAL = 'AllowContentAboveLock';
+
+  if TQuickReg.ValueExists(FRegSettingsPath, VAL) then
+    Result := WinBool( TQuickReg.GetBoolValue(FRegSettingsPath, VAL) );
+end;
+
 function TNotificationManager.GetModuleName: string;
 begin
   Result := ExtractFileName(Application.ExeName)
+end;
+
+function TNotificationManager.GetRank: TNotificationRank;
+begin
+  Result := TNotificationRank.Default;
+  const VAL = 'ShowInActionCenter';
+
+  if TQuickReg.ValueExists(FRegSettingsPath, VAL) then
+    case TQuickReg.GetIntValue(FRegSettingsPath, VAL) of
+      0: Result := TNotificationRank.Normal;
+      1..98: Result := TNotificationRank.High;
+      99..1000: Result := TNotificationRank.Topmost;
+    end;
+end;
+
+function TNotificationManager.GetShowBanner: TWinBoolean;
+begin
+  Result := WinDefault;
+  const VAL = 'ShowBanner';
+
+  if TQuickReg.ValueExists(FRegSettingsPath, VAL) then
+    Result := WinBool( TQuickReg.GetBoolValue(FRegSettingsPath, VAL) );
+end;
+
+function TNotificationManager.GetShowInActionCenter: TWinBoolean;
+begin
+  Result := WinDefault;
+  const VAL = 'ShowInActionCenter';
+
+  if TQuickReg.ValueExists(FRegSettingsPath, VAL) then
+    Result := WinBool( TQuickReg.GetBoolValue(FRegSettingsPath, VAL) );
 end;
 
 function TNotificationManager.GetShowSettings: boolean;
@@ -518,6 +660,24 @@ begin
   if HasRegistryRecord then
     if TQuickReg.ValueExists(FRegPath, VALUE_SETTINGS) then
       Result := TQuickReg.GetIntValue(FRegPath, VALUE_SETTINGS) = 1;
+end;
+
+function TNotificationManager.GetStatusInteractionCount: integer;
+begin
+  Result := 0;
+  const VAL = 'PeriodicInteractionCount';
+
+  if TQuickReg.ValueExists(FRegSettingsPath, VAL) then
+    Result := TQuickReg.GetIntValue(FRegSettingsPath, VAL);
+end;
+
+function TNotificationManager.GetStatusNotificationCount: integer;
+begin
+  Result := 0;
+  const VAL = 'PeriodicNotificationCount';
+
+  if TQuickReg.ValueExists(FRegSettingsPath, VAL) then
+    Result := TQuickReg.GetIntValue(FRegSettingsPath, VAL);
 end;
 
 function TNotificationManager.HasRegistryRecord: boolean;
@@ -575,7 +735,8 @@ end;
 
 procedure TNotificationManager.SetAppID(const Value: string);
 var
-  PreviousPath: string;
+  PreviousPath,
+  PreviousSettingPath: string;
   PreviousRecord: boolean;
 begin
   if FAppID = Value then
@@ -584,15 +745,21 @@ begin
   // Previous
   PreviousRecord := (FAppID <> '') and HasRegistryRecord;
   PreviousPath := FRegPath;
+  PreviousSettingPath := FRegSettingsPath;
 
   // Set
   FAppID := Value;
-  FRegPath := FormatRegistry(FAppID);
+  FRegPath := Format('HKEY_CURRENT_USER\Software\Classes\AppUserModelId\%S', [FAppID]);
+  FRegSettingsPath := Format('HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\%S', [FAppID]);
   RebuildNotifier;
 
-  // Rename
-  if PreviousRecord then
-    TQuickReg.RenameKey(PreviousPath, FAppID);
+  // Rename App Identifier
+  if PreviousRecord then begin
+    if TQuickReg.KeyExists(PreviousPath) then
+      TQuickReg.RenameKey(PreviousPath, FAppID);
+    if TQuickReg.KeyExists(PreviousSettingPath) then
+      TQuickReg.RenameKey(PreviousSettingPath, FRegSettingsPath);
+  end;
 end;
 
 procedure TNotificationManager.SetAppLaunch(const Value: string);
@@ -616,7 +783,29 @@ begin
     TQuickReg.WriteValue(FRegPath, VALUE_NAME, GetModuleName);
 end;
 
-procedure TNotificationManager.SetGetShowSettings(const Value: boolean);
+procedure TNotificationManager.SetShowBanner(const Value: TWinBoolean);
+begin
+  const VAL = 'ShowBanner';
+
+  if Value <> WinDefault then
+    TQuickReg.WriteValue(FRegSettingsPath, VAL, Value.ToBoolean())
+  else
+    if TQuickReg.ValueExists(FRegSettingsPath, VAL) then
+      TQuickReg.DeleteValue(FRegSettingsPath, VAL);
+end;
+
+procedure TNotificationManager.SetShowInActionCenter(const Value: TWinBoolean);
+begin
+  const VAL = 'ShowInActionCenter';
+
+  if Value <> WinDefault then
+    TQuickReg.WriteValue(FRegSettingsPath, VAL, Value.ToBoolean())
+  else
+    if TQuickReg.ValueExists(FRegSettingsPath, VAL) then
+      TQuickReg.DeleteValue(FRegSettingsPath, VAL);
+end;
+
+procedure TNotificationManager.SetShowSettings(const Value: boolean);
 begin
   CreateRegistryRecord;
 
@@ -625,6 +814,31 @@ begin
   else
     if TQuickReg.ValueExists(FRegPath, VALUE_SETTINGS) then
       TQuickReg.DeleteValue(FRegPath, VALUE_SETTINGS);
+end;
+
+procedure TNotificationManager.SetHideLockScreen(const Value: TWinBoolean);
+begin
+  const VAL = 'AllowContentAboveLock';
+
+  if Value <> WinDefault then
+    TQuickReg.WriteValue(FRegSettingsPath, VAL, Value.ToBoolean())
+  else
+    if TQuickReg.ValueExists(FRegSettingsPath, VAL) then
+      TQuickReg.DeleteValue(FRegSettingsPath, VAL);
+end;
+
+procedure TNotificationManager.SetRank(const Value: TNotificationRank);
+begin
+  const VAL = 'ShowInActionCenter';
+
+  case Value of
+    TNotificationRank.Default:
+      if TQuickReg.ValueExists(FRegSettingsPath, VAL) then
+        TQuickReg.DeleteValue(FRegSettingsPath, VAL);
+    TNotificationRank.Normal: TQuickReg.WriteValue(FRegSettingsPath, VAL, 0);
+    TNotificationRank.High: TQuickReg.WriteValue(FRegSettingsPath, VAL, 1);
+    TNotificationRank.Topmost: TQuickReg.WriteValue(FRegSettingsPath, VAL, 99);
+  end;
 end;
 
 procedure TNotificationManager.ResetAppIcon;
@@ -682,53 +896,76 @@ begin
   end;
 end;
 
-{ TNotificationHeader }
+{ TNotificationActivatedHandler }
 
-function TNotificationHeader.ToXML: string;
+constructor TNotificationActivatedHandler.Create(
+  const ANotification: TNotification);
 begin
-  Result := '';
-
-  // Check disabled/invalid
-  if (ID = '') or (Title = '') or (Arguments = '') then
-    Exit;
-
-  Result := Result + 'id="' + ID + '" ';
-  Result := Result + 'title="' + Title + '" ';
-  Result := Result + 'arguments="' + Arguments + '" ';
-
-  if ActivationType <> '' then
-    Result := Result + 'activationType="' + ActivationType + '" ';
-
-  // Encapsulate
-  if Result <> '' then
-    Result := EncapsulateXML('header', '', Result);
+  inherited;
+  FToken := FNotification.FToast.add_Activated( Self );
 end;
 
-{ TNotificationActivatedHandler }
+destructor TNotificationActivatedHandler.Destroy;
+begin
+  FNotification.FToast.remove_Activated( FToken );
+  inherited;
+end;
 
 procedure TNotificationActivatedHandler.Invoke(sender: IToastNotification;
   args: IInspectable);
 begin
-  ShowMessage('activated');
+  const Data = args as IToastActivatedEventArgs;
+  const Data2 = args as IToastActivatedEventArgs2;
+
+  const Map = TUserInputMap.Create(Data2.UserInput as IMap_2__HSTRING__IInspectable);
+  try
+    FNotification.FOnActivated(FNotification, Data.Arguments.ToString, Map);
+  finally
+    // Free instance
+    Map.Free;
+  end;
 end;
 
-{ TNotificationDismissHandler }
+{ TNotificationDismissedHandler }
 
-procedure TNotificationDismissHandler.Invoke(sender: IToastNotification;
+constructor TNotificationDismissedHandler.Create(
+  const ANotification: TNotification);
+begin
+  inherited;
+  FToken := FNotification.FToast.add_Dismissed( Self );
+end;
+
+destructor TNotificationDismissedHandler.Destroy;
+begin
+  FNotification.FToast.remove_Dismissed( FToken );
+  inherited;
+end;
+
+procedure TNotificationDismissedHandler.Invoke(sender: IToastNotification;
   args: IToastDismissedEventArgs);
 begin
-  ShowMessage('dismiss');
+  FNotification.FOnDismissed(FNotification, args.Reason);
 end;
 
 { TNotificationFailedHandler }
 
+constructor TNotificationFailedHandler.Create(
+  const ANotification: TNotification);
+begin
+  inherited;
+  FToken := FNotification.FToast.add_Failed( Self );
+end;
 
-{ TNotificationFailedHandler }
+destructor TNotificationFailedHandler.Destroy;
+begin
+  FNotification.FToast.remove_Dismissed( FToken );
+  inherited;
+end;
 
 procedure TNotificationFailedHandler.Invoke(sender: IToastNotification;
   args: IToastFailedEventArgs);
 begin
-  ShowMessage('fail');
+  FNotification.FOnFailed(FNotification, args.ErrorCode);
 end;
 
 { TToastStringValue }
@@ -796,7 +1033,6 @@ begin
   with FXMLActions.Nodes.AddNode('action') do begin
     Attributes['content'] := Content;
     Attributes['arguments'] := Arguments;
-    Attributes['arguments'] := Arguments;
 
     var S: string; S := '';
     case ActivationType of
@@ -805,7 +1041,7 @@ begin
       TActivationType.Protocol: S := 'protocol';
     end;
     if S <> '' then
-      Attributes['type'] := S;
+      Attributes['activationType'] := S;
 
     if ImageURI <> '' then
       Attributes['imageUri'] := ImageURI;
@@ -924,7 +1160,6 @@ begin
   FXML := TWinXMLDocument.Create;
   FXML.TagName := 'toast';
 
-  FXML.Attributes['activationType'] := 'protocol';
   FXMLVisual := FXML.Nodes.AddNode('visual');
   FXMLBinding:= FXMLVisual.Nodes.AddNode('binding');
   FXMLBinding.Attributes['template']:='ToastGeneric';
@@ -958,6 +1193,40 @@ begin
   end;
 end;
 
+procedure TToastContentBuilder.SetBackgroundActivation;
+begin
+  FXML.Attributes['activationType'] := 'background';
+end;
+
+procedure TToastContentBuilder.SetProtocolActivation(URI: string);
+begin
+  FXML.Attributes['activationType'] := 'protocol';
+  FXML.Attributes['launch'] := URI;
+end;
+
+procedure TToastContentBuilder.SetToastDuration(Duration: TToastDuration);
+const
+  ATTR = 'duration';
+begin
+  case Duration of
+    TToastDuration.Default: FXML.Attributes.DeleteAttribute(ATTR);
+    TToastDuration.Short: FXML.Attributes[ATTR] := 'Short';
+    TToastDuration.Long: FXML.Attributes[ATTR] := 'Long';
+  end;
+end;
+
+procedure TToastContentBuilder.SetToastScenario(Scenario: TToastScenario);
+const
+  ATTR = 'scenario';
+begin
+  case Scenario of
+    TToastScenario.Default: FXML.Attributes.DeleteAttribute(ATTR);
+    TToastScenario.Alarm: FXML.Attributes[ATTR] := 'Alarm';
+    TToastScenario.Reminder: FXML.Attributes[ATTR] := 'Reminder';
+    TToastScenario.IncomingCall: FXML.Attributes[ATTR] := 'IncomingCall';
+  end;
+end;
+
 { TNotification }
 
 function TNotification.Content: TXMLInterface;
@@ -979,7 +1248,19 @@ begin
   FToast6 := nil;
   FData.Free;
 
+  FreeEvents;
+
   inherited;
+end;
+
+procedure TNotification.FreeEvents;
+begin
+  if FHandleActivated <> nil then
+    FreeAndNil( FHandleActivated );
+  if FHandleDismissed <> nil then
+    FreeAndNil( FHandleDismissed );
+  if FHandleFailed <> nil then
+    FreeAndNil( FHandleFailed );
 end;
 
 function TNotification.GetExireReboot: boolean;
@@ -988,11 +1269,8 @@ begin
 end;
 
 function TNotification.GetExpiration: TDateTime;
-begin       
-  Result := UnixToDateTime(
-    FToast.ExpirationTime.Value.UniversalTime,
-    true // utc
-    );
+begin
+  Result := DateTimeToTDateTime( FToast.ExpirationTime.Value );
 end;
 
 function TNotification.GetGroup: string;
@@ -1056,6 +1334,9 @@ begin
   const PrevToast4 = FToast2;
   const PrevToast6 = FToast2;
 
+  // Events
+  FreeEvents;
+
   // Clear
   FPosted := false;
 
@@ -1090,21 +1371,50 @@ begin
   FToast4.Data := Value.Data;
 end;
 
+procedure TNotification.SetEventActivated(const Value: TOnToastActivated);
+begin
+  FOnActivated := Value;
+
+  // Register status
+  if (FHandleActivated <> nil) <> (@Value <> nil) then
+    if FHandleActivated <> nil then
+      FreeAndNil(FHandleActivated)
+    else
+      FHandleActivated := TNotificationActivatedHandler.Create(Self);
+end;
+
+procedure TNotification.SetEventDismissed(const Value: TOnToastDismissed);
+begin
+  FOnDismissed := Value;
+
+  // Register status
+  if (FHandleDismissed <> nil) <> (@Value <> nil) then
+    if FHandleDismissed <> nil then
+      FreeAndNil(FHandleDismissed)
+    else
+      FHandleDismissed := TNotificationDismissedHandler.Create(Self);
+end;
+
+procedure TNotification.SetEventFailed(const Value: TOnToastFailed);
+begin
+  FOnFailed := Value;
+
+  // Register status
+  if (FHandleFailed <> nil) <> (@Value <> nil) then
+    if FHandleFailed <> nil then
+      FreeAndNil(FHandleFailed)
+    else
+      FHandleFailed := TNotificationFailedHandler.Create(Self);
+end;
+
 procedure TNotification.SetExpiration(const Value: TDateTime);
-const
-  TicksPerSecond = 100000000;
 var
   Reference: IReference_1__DateTime;
-  WinDateTime: Winapi.CommonTypes.DateTime;
 begin
-  // Convert TDateTime to Windows.Foundation.DateTime
-  WinDateTime.UniversalTime := DateTimeToUnix(
-    Now,
-    true // utc
-  );
-
   // Create a new instance of IReference_1__DateTime
-  TPropertyValue.CreateDateTime(WinDateTime).QueryInterface(IReference_1__DateTime, Reference);
+  TPropertyValue.CreateDateTime(
+    TDateTimeToDateTime(Value)
+  ).QueryInterface(IReference_1__DateTime, Reference);
 
   // Now you can assign this reference to ExpirationTime
   FToast.ExpirationTime := Reference;
@@ -1248,6 +1558,68 @@ end;
 function TToastValueSingle.ToXML: string;
 begin
   Result := Value.ToString;
+end;
+
+{ TNotificationEventHandler }
+
+constructor TNotificationEventHandler.Create(
+  const ANotification: TNotification);
+begin
+  FNotification := ANotification;
+  FToken.Value := -1;
+end;
+
+destructor TNotificationEventHandler.Destroy;
+begin
+  FNotification := nil;
+  inherited;
+end;
+
+{ TUserInputMap }
+
+constructor TUserInputMap.Create(LookupMap: IMap_2__HSTRING__IInspectable);
+begin
+  FMap := LookupMap;
+end;
+
+destructor TUserInputMap.Destroy;
+begin
+  FMap := nil;
+end;
+
+function TUserInputMap.GetIntValue(ID: string): integer;
+begin
+  const HStr = HString.Create(ID);
+  try
+    Result:= (FMap.Lookup( HStr ) as IPropertyValue).GetInt32;
+  finally
+    HStr.Free;
+  end;
+end;
+
+function TUserInputMap.GetStringValue(ID: string): string;
+begin
+  const HStr = HString.Create(ID);
+  try
+    const HRes = (FMap.Lookup( HStr ) as IPropertyValue).GetString;
+    try
+      Result := HRes.ToString;
+    finally
+      HRes.Free;
+    end;
+  finally
+    HStr.Free;
+  end;
+end;
+
+function TUserInputMap.HasValue(ID: string): boolean;
+begin
+  const HStr = HString.Create(ID);
+  try
+    Result := FMap.HasKey( HStr );
+  finally
+    HStr.Free;
+  end;
 end;
 
 end.

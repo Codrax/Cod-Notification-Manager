@@ -19,7 +19,7 @@ interface
   // System
   Winapi.Windows, Winapi.Messages, System.SysUtils, System.Classes, 
   System.Types, Math, Vcl.Forms, IOUtils, System.Generics.Collections, 
-  Dialogs, ActiveX, ComObj,
+  ActiveX, ComObj,
 
   // Windows RT (Runtime)
   Winapi.Winrt,
@@ -34,7 +34,12 @@ interface
   type
     {$SCOPEDENUMS OFF}
     TWinBoolean = (WinDefault, WinFalse, WinTrue);
+    TWinBool = TWinBoolean;
     {$SCOPEDENUMS ON}
+
+    TWinBooleanHelper = record helper for TWinBoolean
+      function ToBoolean(Default: boolean = false): boolean;
+    end;
 
     TXMLInterface = Xml_Dom_IXmlDocument;
 
@@ -164,6 +169,7 @@ interface
 
   // WinBool
   function WinBooleanToString(AType: TWinBoolean): string;
+  function WinBool(Value: boolean): TWinBoolean;
 
   // Factory
   function FactoryCreateInstance(Nane: string): IInspectable;
@@ -174,7 +180,6 @@ interface
   procedure FreeHString(AString: HSTRING);
   
   // XML
-  function EncapsulateXML(Name: string; Container: string; Tags: string = ''): string;
   function CreateNewXMLInterface: TXMLInterface;
 
 implementation
@@ -186,6 +191,14 @@ begin
     TWinBoolean.WinFalse: Result := 'false';
     TWinBoolean.WinTrue: Result := 'true';
   end;
+end;
+
+function WinBool(Value: boolean): TWinBoolean;
+begin
+  if Value then
+    Result := WinTrue
+  else
+    Result := WinFalse;
 end;
 
 function FactoryCreateInstance(Nane: string): IInspectable;
@@ -230,27 +243,6 @@ procedure FreeHString(AString: HSTRING);
 begin
   if Failed(WindowsDeleteString(AString)) then
     RaiseLastOSError;
-end;
-
-function EncapsulateXML(Name: string; Container, Tags: string): string;
-var
-  TagBegin, TagEnd: string;
-begin
-  if Container <> '' then
-    TagEnd := Format('</%S>', [Name])
-  else
-    TagEnd := '';
-
-  TagBegin := Format('<%S', [Name]);
-  if Tags <> '' then
-    TagBegin := Format('%S %S', [TagBegin, Tags]);
-
-  if Container <> '' then
-    TagBegin := TagBegin + '>'
-  else
-    TagBegin := TagBegin + '/>';
-
-  Result := TagBegin + Container + TagEnd;
 end;
 
 function CreateNewXMLInterface: TXMLInterface;
@@ -625,6 +617,17 @@ constructor TWinXMLDocument.Create;
 begin
   inherited Create;
   FTagName := 'xml';
+end;
+
+{ TWinBooleanHelper }
+
+function TWinBooleanHelper.ToBoolean(Default: boolean): boolean;
+begin
+  case Self of
+    WinDefault: Result := Default;
+    WinFalse: Result := false;
+    WinTrue: Result := true;
+  end;
 end;
 
 end.
