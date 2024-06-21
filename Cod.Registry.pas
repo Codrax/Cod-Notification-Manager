@@ -51,9 +51,11 @@ interface
 
       class function GetStringValue(KeyLocation, ValueName: string): string; overload;
       class function GetIntValue(KeyLocation, ValueName: string): integer; overload;
+      class function GetBoolValue(KeyLocation, ValueName: string): boolean; overload;
 
       class function WriteValue(KeyLocation, ValueName: string; AValue: string): boolean; overload;
       class function WriteValue(KeyLocation, ValueName: string; AValue: integer): boolean; overload;
+      class function WriteValue(KeyLocation, ValueName: string; AValue: boolean): boolean; overload;
 
       class function ValueExists(KeyLocation, ValueName: string): boolean;
       class function DeleteValue(KeyLocation, ValueName: string): boolean;
@@ -1101,6 +1103,11 @@ begin
   end;
 end;
 
+class function TQuickReg.GetBoolValue(KeyLocation, ValueName: string): boolean;
+begin
+  Result := GetIntValue(KeyLocation, ValueName) <> 0;
+end;
+
 class function TQuickReg.GetIntValue(KeyLocation, ValueName: string): integer;
 var
   Registry: TWinRegistry;
@@ -1136,6 +1143,15 @@ begin
   finally
     Registry.Free;
   end;
+end;
+
+class function TQuickReg.WriteValue(KeyLocation, ValueName: string;
+  AValue: boolean): boolean;
+begin
+  if AValue then
+    WriteValue(KeyLocation, ValueName, 1)
+  else
+    WriteValue(KeyLocation, ValueName, 0);
 end;
 
 class function TQuickReg.KeyExists(KeyLocation: string): boolean;

@@ -20,6 +20,24 @@ interface
   System.Generics.Collections, System.Generics.Defaults;
 
   type
+    TMultiSwitch<T> = class
+      type
+      TCase = record
+        Values: TArray<T>;
+        CallBack: TProc;
+
+        procedure Execute;
+      end;
+
+      // Make
+      class function Option(Value: T; Call: TProc): TCase; overload;
+      class function Option(Values: TArray<T>; Call: TProc): TCase; overload;
+
+      // Switch
+      class procedure Switch(Value: T; Cases: TArray<TCase>); overload;
+      class procedure Switch(Value: T; Cases: TArray<TCase>; Default: TProc); overload;
+    end;
+
     // TArray colection
     TArrayUtils<T> = class
     private
@@ -134,7 +152,7 @@ begin
 
   const LowPoint = Low(Values);
   for var I := LowPoint to High(Values) do
-    Destination[StartIndex+I-LowPoint] := Values[LowPoint];
+    Destination[StartIndex+I-LowPoint] := Values[I];
 end;
 
 class function TArrayUtils<T>.Concat(const Primary,
@@ -587,6 +605,44 @@ end;
 procedure TCharArrayHelper.SetToLength(ALength: integer);
 begin
   SetLength(Self, ALength);
+end;
+
+{ TMultiSwitch<T> }
+
+class function TMultiSwitch<T>.Option(Value: T; Call: TProc): TCase;
+begin
+  Result := Option([Value], Call);
+end;
+
+class function TMultiSwitch<T>.Option(Values: TArray<T>; Call: TProc): TCase;
+begin
+  Result.Values := Values;
+  Result.CallBack := Call;
+end;
+
+class procedure TMultiSwitch<T>.Switch(Value: T; Cases: TArray<TCase>; Default: TProc);
+begin
+  for var I := 0 to High(Cases) do
+    if TArrayUtils<T>.Contains(Value, Cases[I].Values) then begin
+      Cases[I].Execute;
+      Exit;
+    end;
+
+  // Default
+  if Assigned(Default) then
+    Default;
+end;
+
+class procedure TMultiSwitch<T>.Switch(Value: T; Cases: TArray<TCase>);
+begin
+  Switch(Value, Cases, nil);
+end;
+
+{ TMultiSwitch<T>.TCase }
+
+procedure TMultiSwitch<T>.TCase.Execute;
+begin
+  Callback;
 end;
 
 end.
