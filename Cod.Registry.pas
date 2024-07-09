@@ -1149,9 +1149,9 @@ class function TQuickReg.WriteValue(KeyLocation, ValueName: string;
   AValue: boolean): boolean;
 begin
   if AValue then
-    WriteValue(KeyLocation, ValueName, 1)
+    Result := WriteValue(KeyLocation, ValueName, 1)
   else
-    WriteValue(KeyLocation, ValueName, 0);
+    Result := WriteValue(KeyLocation, ValueName, 0);
 end;
 
 class function TQuickReg.KeyExists(KeyLocation: string): boolean;

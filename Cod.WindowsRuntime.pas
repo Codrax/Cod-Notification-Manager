@@ -112,6 +112,7 @@ interface
       property Nodes[Index: integer]: TWinXMLNode read GetNode; default;
 
       constructor Create(ForNode: TWinXMLNode);
+      destructor Destroy; override;
     end;
     TWinXMLAttributes = class
     private
@@ -380,8 +381,9 @@ end;
 
 destructor TWinXMLNode.Destroy;
 begin
-  // Destroy children
-  FNodes.Clear;
+  // Free elements
+  FNodes.Free;
+  FAttributes.Free;
 
   inherited;
 end;
@@ -472,6 +474,7 @@ end;
 
 constructor TWinXMLNodes.Create(ForNode: TWinXMLNode);
 begin
+  inherited Create;
   FNodeManager := ForNode;
   FNodes := [];
 end;
@@ -479,6 +482,14 @@ end;
 function TWinXMLNodes.DeleteNode(Node: TWinXMLNode): boolean;
 begin
   Result := DeleteNode(FindNode(Node));
+end;
+
+destructor TWinXMLNodes.Destroy;
+begin
+  // Delete contained items
+  Clear;
+
+  inherited;
 end;
 
 function TWinXMLNodes.DetachNode(Node: TWinXMLNode): boolean;

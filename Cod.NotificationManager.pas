@@ -73,21 +73,44 @@ interface
     TImagePlacement = (Default, Hero, LogoOverride);
     TImageCrop = (Default, None, Circle);
     TInputType = (Text, Selection);
-    TActivationType = (Default, Foreground, Background, Protocol);
-    TToastDuration = (Default, // Use default: short
-      Short, // Show for 7s
-      Long // Show for 25s
+    TActivationType = (
+      ///  <summary> Default activation </summary>
+      Default,
+      ///  <summary> The host application will be launched. </summary>
+      Foreground,
+      ///  <summary> Run the activation in the background via a task </summary>
+      Background,
+      ///  <summary> Start another application via protocol. Eg: "ms-calculator://" </summary>
+      Protocol
+    );
+    TToastDuration = (
+      ///  <summary> Use default: short </summary>
+      Default,
+      ///  <summary> Display for 7s </summary>
+      Short,
+      ///  <summary> Display for 25s </summary>
+      Long
     );
     TAudioMode = (
-      Default, // the notification controls the audio
-      Muted, // no audio
-      Custom // custom audio overrides all toast sounds
+      ///  <summary> The notification controls the audio </summary>
+      Default,
+      /// <summary> No audio </summary>
+      Muted,
+      ///  <summary> Custom audio overrides all toast sounds </summary>
+      Custom
     );
     TNotificationRank = (Default, Normal, High, Topmost);
-    TToastScenario = (Default, // Default notification behaviour
-      Alarm, // Show on screen until the user takes action, NotificationLoopingAlarm selected by default
-      Reminder, // Show on screen until the user takes action
-      IncomingCall // Show on screen until the user takes action, NotificationLoopingCall selected by default
+    TToastScenario = (
+      ///  <summary> Default notification behaviour </summary>
+      Default,
+      ///  <summary> Show on screen until the user takes action, NotificationLoopingAlarm selected by default </summary>
+      Alarm,
+      ///  <summary> Show on screen until the user takes action </summary>
+      Reminder,
+      ///  <summary> Show on screen until the user takes action, NotificationLoopingCall selected by default </summary>
+      IncomingCall,
+      ///  <summary> Urgent </summary>
+      Urgent
       );
     TToastDismissReason = ToastDismissalReason;
 
@@ -108,6 +131,15 @@ interface
         FNotification: TNotification;
         FToken: EventRegistrationToken;
 
+        ///  <summary>
+        ///  Subscribe to the notification event
+        ///  </summary>
+        procedure Subscribe; virtual; abstract;
+        ///  <summary>
+        ///  Unsubscribe from the notification event
+        ///  </summary>
+        procedure Unsubscribe; virtual; // inherited; must be called after the token is unregistered!!
+
       public
         constructor Create(const ANotification: TNotification); virtual;
         destructor Destroy; override;
@@ -117,24 +149,24 @@ interface
       TypedEventHandler_2__IToastNotification__IInspectable_Delegate_Base)
       procedure Invoke(sender: IToastNotification; args: IInspectable); safecall;
 
-      constructor Create(const ANotification: TNotification); override;
-      destructor Destroy; override;
+      procedure Subscribe; override;
+      procedure Unsubscribe; override;
     end;
 
     TNotificationDismissedHandler = class(TNotificationEventHandler, TypedEventHandler_2__IToastNotification__IToastDismissedEventArgs,
       TypedEventHandler_2__IToastNotification__IToastDismissedEventArgs_Delegate_Base)
       procedure Invoke(sender: IToastNotification; args: IToastDismissedEventArgs); safecall;
 
-      constructor Create(const ANotification: TNotification); override;
-      destructor Destroy; override;
+      procedure Subscribe; override;
+      procedure Unsubscribe; override;
     end;
 
     TNotificationFailedHandler = class(TNotificationEventHandler, TypedEventHandler_2__IToastNotification__IToastFailedEventArgs,
       TypedEventHandler_2__IToastNotification__IToastFailedEventArgs_Delegate_Base)
       procedure Invoke(sender: IToastNotification; args: IToastFailedEventArgs); safecall;
 
-      constructor Create(const ANotification: TNotification); override;
-      destructor Destroy; override;
+      procedure Subscribe; override;
+      procedure Unsubscribe; override;
     end;
 
     // Values
@@ -232,9 +264,11 @@ interface
       // Interface-access classes
       FData: TNotificationData;
 
+      /// <summary> Free event notification objects. </summary>
       procedure FreeEvents;
 
-      procedure Initiate(XML: Xml_Dom_IXmlDocument);
+      /// <summary> Initiate notification from XML doc. </summary>
+      procedure Initiate(XML: TXMLInterface);
 
       function GetExpiration: TDateTime;
       procedure SetExpiration(const Value: TDateTime);
@@ -341,10 +375,10 @@ interface
       procedure AddHeader(ID, Title, Arguments: string);
 
       (* https://learn.microsoft.com/en-us/dotnet/api/microsoft.toolkit.uwp.notifications.toastcontentbuilder.settoastduration *)
-      procedure SetToastDuration(Duration: TToastDuration);
+      procedure SetDuration(Duration: TToastDuration);
 
       (* https://learn.microsoft.com/en-us/dotnet/api/microsoft.toolkit.uwp.notifications.toastcontent.scenario *)
-      procedure SetToastScenario(Scenario: TToastScenario);
+      procedure SetScenario(Scenario: TToastScenario);
 
       procedure SetBackgroundActivation;
       procedure SetProtocolActivation(URI: string);
@@ -898,19 +932,6 @@ end;
 
 { TNotificationActivatedHandler }
 
-constructor TNotificationActivatedHandler.Create(
-  const ANotification: TNotification);
-begin
-  inherited;
-  FToken := FNotification.FToast.add_Activated( Self );
-end;
-
-destructor TNotificationActivatedHandler.Destroy;
-begin
-  FNotification.FToast.remove_Activated( FToken );
-  inherited;
-end;
-
 procedure TNotificationActivatedHandler.Invoke(sender: IToastNotification;
   args: IInspectable);
 begin
@@ -926,20 +947,18 @@ begin
   end;
 end;
 
+procedure TNotificationActivatedHandler.Subscribe;
+begin
+  FToken := FNotification.FToast.add_Activated( Self );
+end;
+
+procedure TNotificationActivatedHandler.Unsubscribe;
+begin
+  FNotification.FToast.remove_Activated( FToken );
+  inherited;
+end;
+
 { TNotificationDismissedHandler }
-
-constructor TNotificationDismissedHandler.Create(
-  const ANotification: TNotification);
-begin
-  inherited;
-  FToken := FNotification.FToast.add_Dismissed( Self );
-end;
-
-destructor TNotificationDismissedHandler.Destroy;
-begin
-  FNotification.FToast.remove_Dismissed( FToken );
-  inherited;
-end;
 
 procedure TNotificationDismissedHandler.Invoke(sender: IToastNotification;
   args: IToastDismissedEventArgs);
@@ -947,25 +966,34 @@ begin
   FNotification.FOnDismissed(FNotification, args.Reason);
 end;
 
-{ TNotificationFailedHandler }
-
-constructor TNotificationFailedHandler.Create(
-  const ANotification: TNotification);
+procedure TNotificationDismissedHandler.Subscribe;
 begin
-  inherited;
-  FToken := FNotification.FToast.add_Failed( Self );
+  FToken := FNotification.FToast.add_Dismissed( Self );
 end;
 
-destructor TNotificationFailedHandler.Destroy;
+procedure TNotificationDismissedHandler.Unsubscribe;
 begin
   FNotification.FToast.remove_Dismissed( FToken );
   inherited;
 end;
 
+{ TNotificationFailedHandler }
+
 procedure TNotificationFailedHandler.Invoke(sender: IToastNotification;
   args: IToastFailedEventArgs);
 begin
   FNotification.FOnFailed(FNotification, args.ErrorCode);
+end;
+
+procedure TNotificationFailedHandler.Subscribe;
+begin
+  FToken := FNotification.FToast.add_Failed( Self );
+end;
+
+procedure TNotificationFailedHandler.Unsubscribe;
+begin
+  FNotification.FToast.remove_Dismissed( FToken );
+  inherited;
 end;
 
 { TToastStringValue }
@@ -1114,8 +1142,8 @@ end;
 procedure TToastContentBuilder.AddInputTextBox(ID, Placeholder, Title: string);
 begin
   EnsureActions;
-  
-  with FXMLActions.Nodes.AddNode('input') do begin    
+
+  with FXMLActions.Nodes.AddNode('input') do begin
     Attributes['id'] := ID;
     Attributes['type'] := 'text';
     Attributes['title'] := Title;
@@ -1204,7 +1232,7 @@ begin
   FXML.Attributes['launch'] := URI;
 end;
 
-procedure TToastContentBuilder.SetToastDuration(Duration: TToastDuration);
+procedure TToastContentBuilder.SetDuration(Duration: TToastDuration);
 const
   ATTR = 'duration';
 begin
@@ -1215,7 +1243,7 @@ begin
   end;
 end;
 
-procedure TToastContentBuilder.SetToastScenario(Scenario: TToastScenario);
+procedure TToastContentBuilder.SetScenario(Scenario: TToastScenario);
 const
   ATTR = 'scenario';
 begin
@@ -1224,6 +1252,7 @@ begin
     TToastScenario.Alarm: FXML.Attributes[ATTR] := 'Alarm';
     TToastScenario.Reminder: FXML.Attributes[ATTR] := 'Reminder';
     TToastScenario.IncomingCall: FXML.Attributes[ATTR] := 'IncomingCall';
+    TToastScenario.Urgent: FXML.Attributes[ATTR] := 'Urgent';
   end;
 end;
 
@@ -1241,26 +1270,34 @@ end;
 
 destructor TNotification.Destroy;
 begin
+  // Free and unsubscribe events
+  FreeEvents;
+
+  // Free runtime data object
+  FData.Free;
+
+  // Set interfaces to nill
   FToast := nil;
   FToast2 := nil;
   FToast3 := nil;
   FToast4 := nil;
   FToast6 := nil;
-  FData.Free;
-
-  FreeEvents;
 
   inherited;
 end;
 
 procedure TNotification.FreeEvents;
 begin
+  ///  These elements are NOT freed since they use the refrence count system,
+  ///  which in turn means when they are no longer used, they are freed
+  ///  automatically.
+
   if FHandleActivated <> nil then
-    FreeAndNil( FHandleActivated );
+    FHandleActivated.Unsubscribe;
   if FHandleDismissed <> nil then
-    FreeAndNil( FHandleDismissed );
+    FHandleDismissed.Unsubscribe;
   if FHandleFailed <> nil then
-    FreeAndNil( FHandleFailed );
+    FHandleFailed.Unsubscribe;
 end;
 
 function TNotification.GetExireReboot: boolean;
@@ -1309,7 +1346,7 @@ begin
   HStr.Free;
 end;
 
-procedure TNotification.Initiate(XML: Xml_Dom_IXmlDocument);
+procedure TNotification.Initiate(XML: TXMLInterface);
 begin
   FToast := TToastNotification.CreateToastNotification( XML );
 
@@ -1567,12 +1604,28 @@ constructor TNotificationEventHandler.Create(
 begin
   FNotification := ANotification;
   FToken.Value := -1;
+
+  // Subscribe
+  Subscribe;
 end;
 
 destructor TNotificationEventHandler.Destroy;
 begin
+  // Unsubscribe
+  Unsubscribe;
+
+  // Set to nil
   FNotification := nil;
+
   inherited;
+end;
+
+procedure TNotificationEventHandler.Unsubscribe;
+begin
+  // code
+
+  // inheritable
+  FToken.Value := -1;
 end;
 
 { TUserInputMap }
