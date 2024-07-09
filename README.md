@@ -32,6 +32,8 @@ Notification Manager for advanced notifications in Windows 10/11
   
       AddHeroImage(TToastValueString.Create('C:\Windows\System32\@facial-recognition-windows-hello.gif'));
       AddProgressBar(TToastValueString.Create('Downloading...'), TToastValueBindable.Create('download-pos'));
+
+      AddInputTextBox('editbox-id', 'Enter value', 'Response');
   
       AddButton('Cancel', TActivationType.Foreground, 'cancel');
       AddButton('View more', TActivationType.Foreground, 'view');
