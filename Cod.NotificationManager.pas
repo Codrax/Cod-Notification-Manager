@@ -132,6 +132,10 @@ interface
         FToken: EventRegistrationToken;
 
         ///  <summary>
+        ///  Re-subscribe to the notification event. Used when the notification is reset
+        ///  </summary>
+        procedure Resubscribe; virtual;
+        ///  <summary>
         ///  Subscribe to the notification event
         ///  </summary>
         procedure Subscribe; virtual; abstract;
@@ -140,7 +144,11 @@ interface
         ///  </summary>
         procedure Unsubscribe; virtual; // inherited; must be called after the token is unregistered!!
 
+        // Getters
+        function GetSubscribed: boolean;
       public
+        property Subscribed: boolean read GetSubscribed;
+
         constructor Create(const ANotification: TNotification); virtual;
         destructor Destroy; override;
     end;
@@ -397,6 +405,7 @@ interface
         VALUE_SETTINGS = 'ShowInSettings';
         VALUE_LAUNCH = 'LaunchUri';
 
+
       var
       FNotifier: IToastNotifier;
       FNotifier2: IToastNotifier2;
@@ -404,8 +413,8 @@ interface
 
       FRegPath: string;
       FRegSettingsPath: string;
-      FIsSystemIcon: boolean;
-      FCreateIconCache: boolean;
+      FIconCacheIsActive: boolean; // is the app using the default cache? Or a custom icon
+      FCreateIconCache: boolean; // create default icon cache from the .exe icon when the record is created
 
       // Notifier
       procedure RebuildNotifier;
@@ -431,7 +440,6 @@ interface
       function GetStatusNotificationCount: integer;
 
       // Setters
-      procedure SetAppID(const Value: string);
       procedure SetAppIcon(const Value: string);
       procedure SetAppName(const Value: string);
       procedure SetAppLaunch(const Value: string);
@@ -449,11 +457,14 @@ interface
 
       procedure UpdateNotification(Notification: TNotification);
 
+      // Utils
+      procedure DestroyNotification(var ANotification: TNotification); // hide & free notification
+
       // Settings
       property CreateIconCache: boolean read FCreateIconCache write FCreateIconCache;
 
       // App
-      property ApplicationIdentifier: string read FAppID write SetAppID; // must be set first!
+      property ApplicationIdentifier: string read FAppID;
       property ApplicationName: string read GetAppName write SetAppName;
       property ApplicationIcon: string read GetAppIcon write SetAppIcon;
       property ApplicationLaunch: string read GetAppLaunch write SetAppLaunch;
@@ -471,16 +482,25 @@ interface
       property TotalInteractionCount: integer read GetStatusInteractionCount;
 
       // Utils
-      procedure ResetAppIcon;
+      /// <summary>
+      ///  Reset the notification icon to a default icon cache craeted by the app.
+      /// </summary>
+      procedure ResetAppToSystemIcon;
       procedure CustomAudioMode(AudioMode: TAudioMode; SoundFilePath: string='');
+      /// <summary>
+      ///  Create all the registry keys
+      /// </summary>
       procedure CreateRegistryRecord;
+      /// <summary>
+      ///  Delete all registry keys containing settings for this app.
+      /// </summary>
       procedure DeleteRegistryRecord;
 
       property P: IToastNotifier read FNotifier;
 
       // Constructors
-      constructor Create; overload;
-      constructor Create(ApplicationID: string); overload;
+      constructor Create(AApplicationID: string);
+      constructor CreateByModuleName;
       destructor Destroy; override;
     end;
 
@@ -495,7 +515,7 @@ interface
 
   // Utils
   function AudioTypeToString(AType: TSoundEventValue): string;
-  
+
 implementation
 
 { TNotificationAudio }
@@ -535,17 +555,21 @@ end;
 
 { TNotificationManager }
 
-constructor TNotificationManager.Create;
-begin
-  // Generate default ID
-  ApplicationIdentifier := GetModuleName;
-  FCreateIconCache := true;
-end;
-
-constructor TNotificationManager.Create(ApplicationID: string);
+constructor TNotificationManager.Create(AApplicationID: string);
 begin
   inherited Create;
-  SetAppID( ApplicationID );
+  // Defaults
+  FCreateIconCache := true;
+
+  // ID
+  FAppID := AApplicationID;
+
+  // Set
+  FRegPath := Format('HKEY_CURRENT_USER\Software\Classes\AppUserModelId\%S', [FAppID]);
+  FRegSettingsPath := Format('HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\%S', [FAppID]);
+
+  // Build notifier
+  RebuildNotifier;
 end;
 
 function TNotificationManager.CreateAppIconCache: string;
@@ -560,6 +584,11 @@ begin
   Application.Icon.SaveToFile(Result);
 end;
 
+constructor TNotificationManager.CreateByModuleName;
+begin
+  Create( GetModuleName );
+end;
+
 procedure TNotificationManager.CreateRegistryRecord;
 begin
   if not HasRegistryRecord then
@@ -567,10 +596,16 @@ begin
     begin
       TQuickReg.CreateKey( FRegPath );
 
+      // Settings do not exist, create defaults
       SetAppName(''); // module name
       if CreateIconCache then
-        ResetAppIcon; // default app icon
+        ResetAppToSystemIcon; // default app icon
     end;
+
+  // Create settings
+  if not TQuickReg.KeyExists(FRegSettingsPath) then begin
+    TQuickReg.CreateKey(FRegSettingsPath);
+  end;
 end;
 
 procedure TNotificationManager.CustomAudioMode(AudioMode: TAudioMode;
@@ -594,21 +629,38 @@ begin
   if TFile.Exists(Path) then
     TFile.Delete(Path);
 
-  FIsSystemIcon := true;
+  FIconCacheIsActive := false;
 end;
 
 procedure TNotificationManager.DeleteRegistryRecord;
 begin
+  // Delete system icon cache
+  if FIconCacheIsActive then
+    DeleteIconCache;
+
+  // Delete settings
   TQuickReg.DeleteKey(FRegPath);
 
-  if FIsSystemIcon then
-    DeleteIconCache;
+  // Delete user configurations
+  TQuickReg.DeleteKey(FRegSettingsPath);
 end;
 
 destructor TNotificationManager.Destroy;
 begin
   FNotifier := nil;
   inherited;
+end;
+
+procedure TNotificationManager.DestroyNotification(
+  var ANotification: TNotification);
+begin
+  if ANotification = nil then
+    Exit;
+  try
+    HideNotification( ANotification );
+  except
+  end;
+  FreeAndNil( ANotification );
 end;
 
 function TNotificationManager.GetAppActivator: string;
@@ -756,7 +808,7 @@ begin
   CreateRegistryRecord;
 
   // System
-  if FIsSystemIcon then
+  if FIconCacheIsActive then
     DeleteIconCache;
 
   // Set
@@ -765,35 +817,6 @@ begin
   else
     if TQuickReg.ValueExists(FRegPath, VALUE_ICON) then
       TQuickReg.DeleteValue(FRegPath, VALUE_ICON);
-end;
-
-procedure TNotificationManager.SetAppID(const Value: string);
-var
-  PreviousPath,
-  PreviousSettingPath: string;
-  PreviousRecord: boolean;
-begin
-  if FAppID = Value then
-    Exit;
-
-  // Previous
-  PreviousRecord := (FAppID <> '') and HasRegistryRecord;
-  PreviousPath := FRegPath;
-  PreviousSettingPath := FRegSettingsPath;
-
-  // Set
-  FAppID := Value;
-  FRegPath := Format('HKEY_CURRENT_USER\Software\Classes\AppUserModelId\%S', [FAppID]);
-  FRegSettingsPath := Format('HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\%S', [FAppID]);
-  RebuildNotifier;
-
-  // Rename App Identifier
-  if PreviousRecord then begin
-    if TQuickReg.KeyExists(PreviousPath) then
-      TQuickReg.RenameKey(PreviousPath, FAppID);
-    if TQuickReg.KeyExists(PreviousSettingPath) then
-      TQuickReg.RenameKey(PreviousSettingPath, FRegSettingsPath);
-  end;
 end;
 
 procedure TNotificationManager.SetAppLaunch(const Value: string);
@@ -875,10 +898,10 @@ begin
   end;
 end;
 
-procedure TNotificationManager.ResetAppIcon;
+procedure TNotificationManager.ResetAppToSystemIcon;
 begin
   SetAppIcon( CreateAppIconCache );
-  FIsSystemIcon := true;
+  FIconCacheIsActive := true;
 end;
 
 procedure TNotificationManager.ShowNotification(Notification: TNotification);
@@ -1371,9 +1394,6 @@ begin
   const PrevToast4 = FToast2;
   const PrevToast6 = FToast2;
 
-  // Events
-  FreeEvents;
-
   // Clear
   FPosted := false;
 
@@ -1400,6 +1420,14 @@ begin
 
   // Reset data
   FToast4.Data := FData.Data;
+
+  // Re-subscribe to events
+  if FHandleActivated <> nil then
+    FHandleActivated.Resubscribe;
+  if FHandleDismissed <> nil then
+    FHandleDismissed.Resubscribe;
+  if FHandleFailed <> nil then
+    FHandleFailed.Resubscribe;
 end;
 
 procedure TNotification.SetData(const Value: TNotificationData);
@@ -1612,12 +1640,25 @@ end;
 destructor TNotificationEventHandler.Destroy;
 begin
   // Unsubscribe
-  Unsubscribe;
+  if Subscribed then
+    Unsubscribe;
 
   // Set to nil
   FNotification := nil;
 
   inherited;
+end;
+
+function TNotificationEventHandler.GetSubscribed: boolean;
+begin
+  Result := FToken.Value <> -1;
+end;
+
+procedure TNotificationEventHandler.Resubscribe;
+begin
+  Unsubscribe;
+
+  Subscribe;
 end;
 
 procedure TNotificationEventHandler.Unsubscribe;
